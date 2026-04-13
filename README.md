@@ -1,4 +1,4 @@
-# calc
+# TopMind
 
 A new Flutter project.
 

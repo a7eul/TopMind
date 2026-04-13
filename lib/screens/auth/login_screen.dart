@@ -1,8 +1,17 @@
 import 'package:flutter/material.dart';
+import '../../services/db_service.dart';  
 import 'register_screen.dart';
 
-class LoginScreen extends StatelessWidget {
+class LoginScreen extends StatefulWidget {  
   const LoginScreen({super.key});
+
+  @override
+  State<LoginScreen> createState() => _LoginScreenState();
+}
+
+class _LoginScreenState extends State<LoginScreen> {
+  final TextEditingController loginController = TextEditingController();
+  final TextEditingController passController = TextEditingController();
 
   @override
   Widget build(BuildContext context) {
@@ -12,7 +21,7 @@ class LoginScreen extends StatelessWidget {
         preferredSize: const Size.fromHeight(40),
         child: Container(
           decoration: const BoxDecoration(
-            color: Color(0xFFE53935), // Красный из дизайна
+            color: Color(0xFFE53935),
             borderRadius: BorderRadius.only(
               bottomLeft: Radius.circular(12),
               bottomRight: Radius.circular(12),
@@ -20,7 +29,7 @@ class LoginScreen extends StatelessWidget {
           ),
         ),
       ),
-      backgroundColor: const Color(0xFFF0FFFF), // Светлый фон из дизайна
+      backgroundColor: const Color(0xFFF0FFFF),
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 24.0),
@@ -32,7 +41,6 @@ class LoginScreen extends StatelessWidget {
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  // TOP с красной чертой
                   Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -89,8 +97,9 @@ class LoginScreen extends StatelessWidget {
                 ),
                 child: Column(
                   children: [
-                    // Поле Логин
+                    // Поле Логин 
                     _buildTextField(
+                      controller: loginController,  
                       label: 'Логин',
                       icon: Icons.person_outline,
                       keyboardType: TextInputType.text,
@@ -98,8 +107,9 @@ class LoginScreen extends StatelessWidget {
                     
                     const SizedBox(height: 16),
                     
-                    // Поле Пароль
+                    // Поле Пароль ← С КОНТРОЛЛЕРОМ!
                     _buildTextField(
+                      controller: passController,
                       label: 'Пароль',
                       icon: Icons.lock_outline,
                       isPassword: true,
@@ -110,14 +120,26 @@ class LoginScreen extends StatelessWidget {
               
               const SizedBox(height: 30),
               
-              // Кнопка Войти
+              // Кнопка Войти ← С БАЗОЙ!
               SizedBox(
                 width: double.infinity,
                 height: 48,
                 child: ElevatedButton(
-                  onPressed: () {
-                    // TODO: Логика входа
-                    Navigator.pushReplacementNamed(context, '/main');
+                  onPressed: () async {
+                    print('🔄 Логин: ${loginController.text}');
+                    final user = await DBService.login(
+                      loginController.text, 
+                      passController.text
+                    );
+                    print('👤 Результат: $user');
+                    
+                    if (user != null) {
+                      Navigator.pushReplacementNamed(context, '/main');
+                    } else {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Неправильный логин/пароль'))
+                      );
+                    }
                   },
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFFE53935),
@@ -165,12 +187,14 @@ class LoginScreen extends StatelessWidget {
   }
 
   Widget _buildTextField({
+    TextEditingController? controller,  
     required String label,
     required IconData icon,
     bool isPassword = false,
     TextInputType? keyboardType,
   }) {
     return TextField(
+      controller: controller,  
       obscureText: isPassword,
       keyboardType: keyboardType,
       decoration: InputDecoration(

@@ -1,13 +1,24 @@
 import 'package:flutter/material.dart';
+import '../../services/db_service.dart';
 import 'login_screen.dart';
 
-class RegisterScreen extends StatelessWidget {
+class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
+
+  @override
+  State<RegisterScreen> createState() => _RegisterScreenState();
+}
+
+class _RegisterScreenState extends State<RegisterScreen> {
+  final TextEditingController firstNameController = TextEditingController();
+  final TextEditingController lastNameController = TextEditingController();
+  final TextEditingController loginController = TextEditingController();
+  final TextEditingController passwordController = TextEditingController();
+  final TextEditingController confirmPasswordController = TextEditingController();
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      // Красная полоса сверху
       appBar: PreferredSize(
         preferredSize: const Size.fromHeight(40),
         child: Container(
@@ -28,7 +39,6 @@ class RegisterScreen extends StatelessWidget {
             children: [
               const SizedBox(height: 40),
               
-              // Заголовок
               const Text(
                 'Регистрация',
                 style: TextStyle(
@@ -40,7 +50,6 @@ class RegisterScreen extends StatelessWidget {
               
               const SizedBox(height: 30),
               
-              // Белая карточка с полями
               Container(
                 padding: const EdgeInsets.all(20),
                 decoration: BoxDecoration(
@@ -57,41 +66,33 @@ class RegisterScreen extends StatelessWidget {
                 ),
                 child: Column(
                   children: [
-                    // Имя
                     _buildTextField(
+                      controller: firstNameController,
                       label: 'Имя',
                       icon: Icons.person_outline,
                     ),
-                    
                     const SizedBox(height: 12),
-                    
-                    // Фамилия
                     _buildTextField(
+                      controller: lastNameController,
                       label: 'Фамилия',
                       icon: Icons.badge_outlined,
                     ),
-                    
                     const SizedBox(height: 12),
-                    
-                    // Логин
                     _buildTextField(
+                      controller: loginController,
                       label: 'Логин',
                       icon: Icons.alternate_email,
                     ),
-                    
                     const SizedBox(height: 12),
-                    
-                    // Пароль
                     _buildTextField(
+                      controller: passwordController,
                       label: 'Пароль',
                       icon: Icons.lock_outline,
                       isPassword: true,
                     ),
-                    
                     const SizedBox(height: 12),
-                    
-                    // Подтверждение пароля
                     _buildTextField(
+                      controller: confirmPasswordController,
                       label: 'Подтвердите пароль',
                       icon: Icons.lock_reset,
                       isPassword: true,
@@ -102,21 +103,48 @@ class RegisterScreen extends StatelessWidget {
               
               const SizedBox(height: 25),
               
-              // Кнопка Зарегистрироваться
               SizedBox(
                 width: double.infinity,
                 height: 48,
                 child: ElevatedButton(
-                  onPressed: () {
-                    // TODO: Логика регистрации
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('Регистрация успешна!'),
-                        backgroundColor: Colors.green,
-                      ),
+                  onPressed: () async {
+                    if (passwordController.text != confirmPasswordController.text) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Пароли не совпадают!'),
+                          backgroundColor: Colors.red,
+                        ),
+                      );
+                      return;
+                    }
+
+                    print('Регистрация: ${loginController.text}');
+                    
+                    final success = await DBService.register(
+                      firstNameController.text,
+                      lastNameController.text,
+                      loginController.text,
+                      passwordController.text,
                     );
-                    // Переход на вход
-                    Navigator.pop(context);
+                    
+                    print('Результат: $success');
+
+                    if (success) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Регистрация успешна!'),
+                          backgroundColor: Colors.green,
+                        ),
+                      );
+                      Navigator.pop(context);
+                    } else {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Логин уже существует!'),
+                          backgroundColor: Colors.orange,
+                        ),
+                      );
+                    }
                   },
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFFE53935),
@@ -128,27 +156,18 @@ class RegisterScreen extends StatelessWidget {
                   ),
                   child: const Text(
                     'Зарегистрироваться',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                    ),
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                   ),
                 ),
               ),
               
               const SizedBox(height: 15),
               
-              // Переход на вход
               TextButton(
-                onPressed: () {
-                  Navigator.pop(context);
-                },
+                onPressed: () => Navigator.pop(context),
                 child: const Text(
                   'Уже есть аккаунт? Войти',
-                  style: TextStyle(
-                    color: Color(0xFFE53935),
-                    fontSize: 14,
-                  ),
+                  style: TextStyle(color: Color(0xFFE53935), fontSize: 14),
                 ),
               ),
             ],
@@ -159,11 +178,13 @@ class RegisterScreen extends StatelessWidget {
   }
 
   Widget _buildTextField({
+    required TextEditingController controller,
     required String label,
     required IconData icon,
     bool isPassword = false,
   }) {
     return TextField(
+      controller: controller,
       obscureText: isPassword,
       decoration: InputDecoration(
         labelText: label,
@@ -174,10 +195,7 @@ class RegisterScreen extends StatelessWidget {
         ),
         filled: true,
         fillColor: Colors.grey[100],
-        contentPadding: const EdgeInsets.symmetric(
-          horizontal: 16,
-          vertical: 12,
-        ),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       ),
     );
   }

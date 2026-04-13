@@ -5,10 +5,22 @@ import 'screens/home/chats_list_screen.dart';
 import 'screens/chat/chat_screen.dart';
 import 'screens/schedule/schedule_screen.dart';
 import 'screens/profile/profile_screen.dart';
+import 'services/db_service.dart';
 
-void main() {
+Future<void> testDB() async {
+  try {
+    final chats = await DBService.getUserChats(1);
+    debugPrint('Chats: $chats');
+  } catch (e) {
+    debugPrint('DB error: $e');
+  }
+}
+
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await testDB();
   runApp(const MyApp());
-} 
+}
 
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
@@ -30,22 +42,12 @@ class MyApp extends StatelessWidget {
       ),
       initialRoute: '/',
       routes: {
-        // Экран входа
         '/': (context) => const LoginScreen(),
-        
-        // Экран регистрации
         '/register': (context) => const RegisterScreen(),
-        
-        // Главная (список чатов)
         '/main': (context) => const ChatsListScreen(),
-        
-        // Расписание
         '/schedule': (context) => const ScheduleScreen(),
-        
-        // Профиль
         '/profile': (context) => const ProfileScreen(),
       },
-      // Экран чата с параметрами
       onGenerateRoute: (settings) {
         if (settings.name == '/chat') {
           final args = settings.arguments as Map<String, String>;
