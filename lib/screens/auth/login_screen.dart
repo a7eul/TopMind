@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
-import '../../services/db_service.dart';  
+import '../../services/db_service.dart';
 import 'register_screen.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:convert';
 
-class LoginScreen extends StatefulWidget {  
+class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
 
   @override
@@ -14,9 +16,15 @@ class _LoginScreenState extends State<LoginScreen> {
   final TextEditingController passController = TextEditingController();
 
   @override
+  void dispose() {
+    loginController.dispose();
+    passController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
-      // Красная полоса сверху
       appBar: PreferredSize(
         preferredSize: const Size.fromHeight(40),
         child: Container(
@@ -36,8 +44,6 @@ class _LoginScreenState extends State<LoginScreen> {
           child: Column(
             children: [
               const SizedBox(height: 60),
-              
-              // Логотип TOP Mind
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
@@ -77,10 +83,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                 ],
               ),
-              
               const SizedBox(height: 50),
-              
-              // Белая карточка с полями
               Container(
                 padding: const EdgeInsets.all(20),
                 decoration: BoxDecoration(
@@ -97,17 +100,13 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
                 child: Column(
                   children: [
-                    // Поле Логин 
                     _buildTextField(
-                      controller: loginController,  
+                      controller: loginController,
                       label: 'Логин',
                       icon: Icons.person_outline,
                       keyboardType: TextInputType.text,
                     ),
-                    
                     const SizedBox(height: 16),
-                    
-                    // Поле Пароль ← С КОНТРОЛЛЕРОМ!
                     _buildTextField(
                       controller: passController,
                       label: 'Пароль',
@@ -117,27 +116,32 @@ class _LoginScreenState extends State<LoginScreen> {
                   ],
                 ),
               ),
-              
               const SizedBox(height: 30),
-              
-              // Кнопка Войти ← С БАЗОЙ!
               SizedBox(
                 width: double.infinity,
                 height: 48,
                 child: ElevatedButton(
                   onPressed: () async {
-                    print('🔄 Логин: ${loginController.text}');
+                    print('Логин: ${loginController.text}');
                     final user = await DBService.login(
-                      loginController.text, 
-                      passController.text
+                      loginController.text,
+                      passController.text,
                     );
-                    print('👤 Результат: $user');
-                    
+                    print('Результат: $user');
+
                     if (user != null) {
+                      final prefs = await SharedPreferences.getInstance();
+                      await prefs.setString('current_user', jsonEncode(user));
+                      print('💾 User сохранен: ${user['id']}');
+
+                      if (!mounted) return;
                       Navigator.pushReplacementNamed(context, '/main');
                     } else {
+                      if (!mounted) return;
                       ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Неправильный логин/пароль'))
+                        const SnackBar(
+                          content: Text('Неправильный логин/пароль'),
+                        ),
                       );
                     }
                   },
@@ -158,10 +162,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                 ),
               ),
-              
               const SizedBox(height: 20),
-              
-              // Переход на регистрацию
               TextButton(
                 onPressed: () {
                   Navigator.push(
@@ -187,14 +188,14 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Widget _buildTextField({
-    TextEditingController? controller,  
+    required TextEditingController controller,
     required String label,
     required IconData icon,
     bool isPassword = false,
     TextInputType? keyboardType,
   }) {
     return TextField(
-      controller: controller,  
+      controller: controller,
       obscureText: isPassword,
       keyboardType: keyboardType,
       decoration: InputDecoration(

@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:convert';
+import '../../services/db_service.dart';
 import '../widgets/side_menu.dart';
 
 class ProfileScreen extends StatefulWidget {
@@ -9,8 +12,20 @@ class ProfileScreen extends StatefulWidget {
 }
 
 class _ProfileScreenState extends State<ProfileScreen> {
-  final _nameController = TextEditingController(text: 'Иван');
-  final _surnameController = TextEditingController(text: 'Иванов');
+  Map<String, dynamic>? _user;
+  bool _isLoading = true;
+  bool _isEditing = false;
+
+  late final TextEditingController _nameController;
+  late final TextEditingController _surnameController;
+
+  @override
+  void initState() {
+    super.initState();
+    _nameController = TextEditingController();
+    _surnameController = TextEditingController();
+    _loadProfile();
+  }
 
   @override
   void dispose() {
@@ -19,8 +34,126 @@ class _ProfileScreenState extends State<ProfileScreen> {
     super.dispose();
   }
 
+  Future<void> _loadProfile() async {
+    try {
+      final user = await DBService.getCurrentUser();
+      if (user == null) {
+        if (mounted) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(const SnackBar(content: Text('Ошибка авторизации')));
+        }
+        return;
+      }
+
+      if (mounted) {
+        setState(() {
+          _user = user;
+          _nameController.text = user['first_name'] ?? '';
+          _surnameController.text = user['last_name'] ?? '';
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      print('Ошибка профиля: $e');
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
+  }
+
+  Future<void> _saveProfile() async {
+    if (_user == null || !mounted) return;
+
+    try {
+      final success = await DBService.updateProfile(
+        _user!['id'],
+        _nameController.text,
+        _surnameController.text,
+      );
+
+      if (success && mounted) {
+        final prefs = await SharedPreferences.getInstance();
+        final updatedUser = Map<String, dynamic>.from(_user!)
+          ..['first_name'] = _nameController.text
+          ..['last_name'] = _surnameController.text;
+        await prefs.setString('current_user', jsonEncode(updatedUser));
+
+        setState(() => _isEditing = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('✅ Профиль обновлен'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      } else if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('❌ Не удалось обновить профиль')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('❌ Ошибка: $e')));
+      }
+    }
+  }
+
+  void _editProfile() {
+    if (mounted) {
+      setState(() => _isEditing = true);
+    }
+  }
+
+  void _logout() {
+    if (!mounted) return;
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Выйти'),
+        content: const Text('Вы уверены, что хотите выйти?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Отмена'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              final prefs = await SharedPreferences.getInstance();
+              await prefs.remove('current_user');
+              Navigator.pop(context);
+              Navigator.pushReplacementNamed(context, '/');
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFE53935),
+            ),
+            child: const Text('Выйти'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _changeAvatar() {
+    if (mounted) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Изменить аватар (TODO)')));
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    if (_isLoading) {
+      return const Scaffold(
+        body: Center(
+          child: CircularProgressIndicator(color: Color(0xFFE53935)),
+        ),
+      );
+    }
+
     return Scaffold(
       backgroundColor: const Color(0xFFF0FFFF),
       appBar: PreferredSize(
@@ -38,7 +171,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
       body: SafeArea(
         child: Stack(
           children: [
-            // 🔹 ЛЕВАЯ ЧАСТЬ: Контент с отступом справа
             Padding(
               padding: const EdgeInsets.only(right: 90.0),
               child: SingleChildScrollView(
@@ -65,7 +197,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             color: Colors.grey.withOpacity(0.1),
                             spreadRadius: 2,
                             blurRadius: 8,
-                            offset: const Offset(0, 4),
+                            offset: Offset(0, 4),
                           ),
                         ],
                       ),
@@ -78,37 +210,39 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                 height: 100,
                                 decoration: BoxDecoration(
                                   shape: BoxShape.circle,
+                                  image:
+                                      _user?['avatar_url']?.isNotEmpty == true
+                                      ? DecorationImage(
+                                          image: NetworkImage(
+                                            _user!['avatar_url'],
+                                          ),
+                                          fit: BoxFit.cover,
+                                        )
+                                      : null,
                                   color: Colors.grey[300],
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: Colors.grey.withOpacity(0.3),
-                                      spreadRadius: 2,
-                                      blurRadius: 6,
-                                      offset: const Offset(0, 2),
-                                    ),
-                                  ],
                                 ),
-                                child: Icon(
-                                  Icons.person,
-                                  size: 50,
-                                  color: Colors.grey[500],
-                                ),
+                                child: _user?['avatar_url']?.isEmpty == true
+                                    ? Icon(
+                                        Icons.person,
+                                        size: 50,
+                                        color: Colors.grey[500],
+                                      )
+                                    : null,
                               ),
                               Positioned(
                                 right: 0,
                                 bottom: 0,
                                 child: GestureDetector(
-                                  onTap: () {
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      const SnackBar(content: Text('Изменить аватар')),
-                                    );
-                                  },
+                                  onTap: _changeAvatar,
                                   child: Container(
                                     padding: const EdgeInsets.all(4),
                                     decoration: BoxDecoration(
                                       color: const Color(0xFFE53935),
                                       shape: BoxShape.circle,
-                                      border: Border.all(color: Colors.white, width: 2),
+                                      border: Border.all(
+                                        color: Colors.white,
+                                        width: 2,
+                                      ),
                                     ),
                                     child: const Icon(
                                       Icons.camera_alt,
@@ -121,29 +255,67 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             ],
                           ),
                           const SizedBox(height: 24),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Container(
+                                  height: 1,
+                                  color: Colors.grey[300],
+                                ),
+                              ),
+                              Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                ),
+                                child: Text(
+                                  'Данные',
+                                  style: TextStyle(
+                                    color: Colors.grey,
+                                    fontSize: 14,
+                                  ),
+                                ),
+                              ),
+                              Expanded(
+                                child: Container(
+                                  height: 1,
+                                  color: Colors.grey[300],
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 24),
+
                           _buildTextField(
                             controller: _nameController,
                             label: 'Имя',
                             icon: Icons.person_outline,
+                            enabled: _isEditing,
                           ),
                           const SizedBox(height: 16),
                           _buildTextField(
                             controller: _surnameController,
                             label: 'Фамилия',
                             icon: Icons.badge_outlined,
+                            enabled: _isEditing,
                           ),
                           const SizedBox(height: 24),
                           Row(
                             children: [
-                              Expanded(child: Container(height: 1, color: Colors.grey[300])),
-                              Padding(
-                                padding: const EdgeInsets.symmetric(horizontal: 12),
-                                child: Text(
-                                  'Данные',
-                                  style: TextStyle(color: Colors.grey[600], fontSize: 14),
+                              Expanded(
+                                child: Container(
+                                  height: 1,
+                                  color: Colors.grey[300],
                                 ),
                               ),
-                              Expanded(child: Container(height: 1, color: Colors.grey[300])),
+                              const Padding(
+                                padding: EdgeInsets.symmetric(horizontal: 12),
+                              ),
+                              Expanded(
+                                child: Container(
+                                  height: 1,
+                                  color: Colors.grey[300],
+                                ),
+                              ),
                             ],
                           ),
                           const SizedBox(height: 24),
@@ -151,67 +323,50 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             children: [
                               Expanded(
                                 child: ElevatedButton(
-                                  onPressed: () {
-                                    showDialog(
-                                      context: context,
-                                      builder: (context) => AlertDialog(
-                                        title: const Text('Выйти'),
-                                        content: const Text('Вы уверены, что хотите выйти?'),
-                                        actions: [
-                                          TextButton(
-                                            onPressed: () => Navigator.pop(context),
-                                            child: const Text('Отмена'),
-                                          ),
-                                          ElevatedButton(
-                                            onPressed: () {
-                                              Navigator.pop(context);
-                                              Navigator.pushReplacementNamed(context, '/');
-                                            },
-                                            style: ElevatedButton.styleFrom(
-                                              backgroundColor: const Color(0xFFE53935),
-                                            ),
-                                            child: const Text('Выйти'),
-                                          ),
-                                        ],
-                                      ),
-                                    );
-                                  },
+                                  onPressed: _logout,
                                   style: ElevatedButton.styleFrom(
                                     backgroundColor: const Color(0xFFE53935),
                                     foregroundColor: Colors.white,
-                                    padding: const EdgeInsets.symmetric(vertical: 12),
+                                    padding: const EdgeInsets.symmetric(
+                                      vertical: 12,
+                                    ),
                                     shape: RoundedRectangleBorder(
                                       borderRadius: BorderRadius.circular(12),
                                     ),
                                   ),
                                   child: const Text(
                                     'Выйти',
-                                    style: TextStyle(fontWeight: FontWeight.bold),
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                    ),
                                   ),
                                 ),
                               ),
                               const SizedBox(width: 12),
                               Expanded(
                                 child: ElevatedButton(
-                                  onPressed: () {
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      const SnackBar(
-                                        content: Text('Изменения сохранены'),
-                                        backgroundColor: Colors.green,
-                                      ),
-                                    );
-                                  },
+                                  onPressed: _isEditing
+                                      ? _saveProfile
+                                      : _editProfile,
                                   style: ElevatedButton.styleFrom(
-                                    backgroundColor: Colors.grey[300],
-                                    foregroundColor: Colors.black87,
-                                    padding: const EdgeInsets.symmetric(vertical: 12),
+                                    backgroundColor: _isEditing
+                                        ? const Color(0xFFE53935)
+                                        : Colors.grey[300]!,
+                                    foregroundColor: _isEditing
+                                        ? Colors.white
+                                        : Colors.black87,
+                                    padding: const EdgeInsets.symmetric(
+                                      vertical: 12,
+                                    ),
                                     shape: RoundedRectangleBorder(
                                       borderRadius: BorderRadius.circular(12),
                                     ),
                                   ),
-                                  child: const Text(
-                                    'Сохранить',
-                                    style: TextStyle(fontWeight: FontWeight.bold),
+                                  child: Text(
+                                    _isEditing ? 'Сохранить' : 'Редактировать',
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                    ),
                                   ),
                                 ),
                               ),
@@ -220,57 +375,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         ],
                       ),
                     ),
-                    const SizedBox(height: 20),
-                    SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton(
-                        onPressed: () {
-                          showDialog(
-                            context: context,
-                            builder: (context) => AlertDialog(
-                              title: const Text('Удалить аккаунт'),
-                              content: const Text(
-                                'Вы уверены? Это действие нельзя отменить.',
-                                style: TextStyle(color: Colors.red),
-                              ),
-                              actions: [
-                                TextButton(
-                                  onPressed: () => Navigator.pop(context),
-                                  child: const Text('Отмена'),
-                                ),
-                                ElevatedButton(
-                                  onPressed: () {
-                                    Navigator.pop(context);
-                                    Navigator.pushReplacementNamed(context, '/');
-                                  },
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: Colors.red,
-                                  ),
-                                  child: const Text('Удалить'),
-                                ),
-                              ],
-                            ),
-                          );
-                        },
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.grey[800],
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                        ),
-                        child: const Text(
-                          'Удалить аккаунт',
-                          style: TextStyle(fontWeight: FontWeight.bold),
-                        ),
-                      ),
-                    ),
                   ],
                 ),
               ),
             ),
-            // 🔹 ПРАВАЯ ЧАСТЬ: Меню ВЕРТИКАЛЬНО ПО ЦЕНТРУ
             Align(
               alignment: Alignment.centerRight,
               child: Container(
@@ -288,9 +396,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
     required TextEditingController controller,
     required String label,
     required IconData icon,
+    bool enabled = true,
   }) {
     return TextField(
       controller: controller,
+      enabled: enabled,
       decoration: InputDecoration(
         labelText: label,
         prefixIcon: Icon(icon, color: const Color(0xFFE53935)),
@@ -299,7 +409,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           borderSide: BorderSide.none,
         ),
         filled: true,
-        fillColor: Colors.grey[100],
+        fillColor: enabled ? Colors.grey[100]! : Colors.grey[200]!,
         contentPadding: const EdgeInsets.symmetric(
           horizontal: 16,
           vertical: 12,
