@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../widgets/side_menu.dart';
+import '../../services/db_service.dart';
 
 class ScheduleScreen extends StatefulWidget {
   const ScheduleScreen({super.key});
@@ -10,52 +11,120 @@ class ScheduleScreen extends StatefulWidget {
 
 class _ScheduleScreenState extends State<ScheduleScreen> {
   int _weekOffset = 0;
-
-  final Map<String, List<Map<String, String>>> _schedule = {
-    'Пн': [
-      {'subject': 'Разработка мобильных приложений', 'time': '9:45 - 11:15', 'teacher': 'Кондакова К.Н.', 'room': '305'},
-      {'subject': 'Разработка мобильных приложений', 'time': '11:45 - 13:15', 'teacher': 'Кондакова К.Н.', 'room': '305'},
-    ],
-    'Вт': [
-      {'subject': 'Разработка мобильных приложений', 'time': '9:45 - 11:15', 'teacher': 'Кондакова К.Н.', 'room': '305'},
-    ],
-    'Ср': [
-      {'subject': 'Разработка мобильных приложений', 'time': '9:45 - 11:15', 'teacher': 'Кондакова К.Н.', 'room': '305'},
-      {'subject': 'Разработка мобильных приложений', 'time': '11:45 - 13:15', 'teacher': 'Кондакова К.Н.', 'room': '305'},
-    ],
-    'Чт': [
-      {'subject': 'Разработка мобильных приложений', 'time': '9:45 - 11:15', 'teacher': 'Кондакова К.Н.', 'room': '305'},
-    ],
-    'Пт': [
-      {'subject': 'Разработка мобильных приложений', 'time': '9:45 - 11:15', 'teacher': 'Кондакова К.Н.', 'room': '305'},
-      {'subject': 'Разработка мобильных приложений', 'time': '11:45 - 13:15', 'teacher': 'Кондакова К.Н.', 'room': '305'},
-    ],
-    'Сб': [
-      {'subject': 'Разработка мобильных приложений', 'time': '9:45 - 11:15', 'teacher': 'Кондакова К.Н.', 'room': '305'},
-    ],
-    'Вс': [],
-  };
+  bool _isLoading = false;
+  String? _error;
+  
+  // Храним расписание: { 'Пн': [пара1, пара2], 'Вт': [...] }
+  Map<String, List<Map<String, dynamic>>> _schedule = {};
 
   final List<String> _days = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
 
-  String _getCurrentWeekText() {
-    final now = DateTime.now();
-    final currentDayOfWeek = now.weekday;
-    final startOfWeek = now.subtract(Duration(days: currentDayOfWeek - 1));
-    final endOfWeek = startOfWeek.add(const Duration(days: 6));
-
-    final adjustedStart = startOfWeek.add(Duration(days: _weekOffset * 7));
-    final adjustedEnd = endOfWeek.add(Duration(days: _weekOffset * 7));
-
-    const months = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
-
-    String formatDate(DateTime date) => '${date.day} ${months[date.month - 1]}';
-    return '${formatDate(adjustedStart)} - ${formatDate(adjustedEnd)}';
+  @override
+  void initState() {
+    super.initState();
+    _loadSchedule();
   }
 
-  void _previousWeek() => setState(() => _weekOffset--);
-  void _nextWeek() => setState(() => _weekOffset++);
-  void _currentWeek() => setState(() => _weekOffset = 0);
+  // загрузка расписания с сервера
+  Future<void> _loadSchedule() async {
+    setState(() {
+      _isLoading = true;
+      _error = null;
+    });
+
+    try {
+      // получение группы юзера
+      final user = await DBService.getCurrentUser();
+      if (user == null || user['group_id'] == null) {
+        throw Exception('Группа не найдена');
+      }
+
+      // расчет даты
+      final now = DateTime.now();
+      final startOfWeek = now.subtract(Duration(days: now.weekday - 1));
+      final adjustedStart = startOfWeek.add(Duration(days: _weekOffset * 7));
+      final adjustedEnd = adjustedStart.add(const Duration(days: 6));
+
+      // спрашиваем расписание у серва
+      final lessons = await DBService.getSchedule(
+        user['group_id'],
+        adjustedStart,
+        adjustedEnd,
+      );
+
+      // группировка по дням недели
+      final grouped = <String, List<Map<String, dynamic>>>{};
+      for (final day in _days) grouped[day] = [];
+
+      for (final lesson in lessons) {
+        final date = DateTime.parse(lesson['lesson_date']);
+        final dayName = _days[date.weekday - 1]; // 1=Пн, 7=Вс
+        
+        grouped[dayName]?.add({
+          'subject': lesson['subject'],
+          'time': '${_formatTime(lesson['start_time'])} - ${_formatTime(lesson['end_time'])}',
+          'teacher': lesson['teacher'],
+          'room': lesson['room'],
+          'start_time': lesson['start_time'], // для сортировки
+        });
+      }
+
+      // сортировка пар по времени
+      for (final day in grouped.keys) {
+        grouped[day]!.sort((a, b) => 
+          a['start_time'].compareTo(b['start_time']));
+      }
+
+      if (mounted) {
+        setState(() {
+          _schedule = grouped;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _error = 'Не удалось загрузить расписание';
+          _isLoading = false;
+        });
+        debugPrint('Ошибка расписания: $e');
+      }
+    }
+  }
+
+  String _formatTime(String time) {
+    final parts = time.split(':');
+    if (parts.length >= 2) return '${parts[0]}:${parts[1]}';
+    return time;
+  }
+
+  String _getCurrentWeekText() {
+    final now = DateTime.now();
+    final startOfWeek = now.subtract(Duration(days: now.weekday - 1));
+    final adjustedStart = startOfWeek.add(Duration(days: _weekOffset * 7));
+    final adjustedEnd = adjustedStart.add(const Duration(days: 6));
+
+    const months = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 
+                    'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
+
+    String formatDate(DateTime date) => '${date.day} ${months[date.month - 1]}';
+    return '${formatDate(adjustedStart)} – ${formatDate(adjustedEnd)}';
+  }
+
+  void _previousWeek() {
+    setState(() => _weekOffset--);
+    _loadSchedule();
+  }
+
+  void _nextWeek() {
+    setState(() => _weekOffset++);
+    _loadSchedule();
+  }
+
+  void _currentWeek() {
+    setState(() => _weekOffset = 0);
+    _loadSchedule();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -66,14 +135,17 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
         child: Container(
           decoration: const BoxDecoration(
             color: Color(0xFFE53935),
-            borderRadius: BorderRadius.only(bottomLeft: Radius.circular(12), bottomRight: Radius.circular(12)),
+            borderRadius: BorderRadius.only(
+              bottomLeft: Radius.circular(12),
+              bottomRight: Radius.circular(12),
+            ),
           ),
         ),
       ),
       body: SafeArea(
         child: Row(
           children: [
-            // Левая часть - контент
+            // 🔹 ЛЕВАЯ ЧАСТЬ: Контент
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -82,9 +154,15 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                     padding: EdgeInsets.fromLTRB(24, 16, 24, 16),
                     child: Text(
                       'Расписание',
-                      style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.black),
+                      style: TextStyle(
+                        fontSize: 22,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.black,
+                      ),
                     ),
                   ),
+                  
+                  // 📅 Навигация по неделям
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 24.0),
                     child: Row(
@@ -96,14 +174,21 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                             onTap: _currentWeek,
                             child: Container(
                               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                              decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(8)),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(8),
+                              ),
                               child: Row(
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
                                   Expanded(
                                     child: Text(
                                       _getCurrentWeekText(),
-                                      style: const TextStyle(fontSize: 14, color: Colors.black87, fontWeight: FontWeight.w500),
+                                      style: const TextStyle(
+                                        fontSize: 14,
+                                        color: Colors.black87,
+                                        fontWeight: FontWeight.w500,
+                                      ),
                                       textAlign: TextAlign.center,
                                     ),
                                   ),
@@ -125,23 +210,30 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                     ),
                   ),
                   const SizedBox(height: 16),
+
+                  // 📋 Список дней
                   Expanded(
-                    child: ListView.builder(
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      itemCount: _days.length,
-                      itemBuilder: (context, index) => _buildDaySection(_days[index]),
-                    ),
+                    child: _isLoading
+                        ? const Center(child: CircularProgressIndicator(color: Color(0xFFE53935)))
+                        : _error != null
+                            ? Center(child: Text(_error!, style: const TextStyle(color: Colors.red)))
+                            : ListView.builder(
+                                padding: const EdgeInsets.symmetric(horizontal: 16),
+                                itemCount: _days.length,
+                                itemBuilder: (context, index) => _buildDaySection(_days[index]),
+                              ),
                   ),
                 ],
               ),
             ),
-            // Правая часть - панель навигации
+            
+            // 🔹 ПРАВАЯ ЧАСТЬ: Меню
             Align(
               alignment: Alignment.centerRight,
               child: Container(
                 margin: const EdgeInsets.only(right: 12),
-                child: const SideMenu(activeIndex: 2)       
-              ),     
+                child: const SideMenu(activeIndex: 2),
+              ),
             ),
           ],
         ),
@@ -152,25 +244,43 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
   Widget _navButton(IconData icon) {
     return Container(
       padding: const EdgeInsets.all(8),
-      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(8)),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(8),
+      ),
       child: Icon(icon, color: const Color(0xFFE53935)),
     );
   }
 
   Widget _buildDaySection(String day) {
     final lessons = _schedule[day] ?? [];
+    
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
-        boxShadow: [BoxShadow(color: Colors.grey.withOpacity(0.1), spreadRadius: 2, blurRadius: 8, offset: const Offset(0, 4))],
+        boxShadow: [
+          BoxShadow(
+            color: Colors.grey.withOpacity(0.1),
+            spreadRadius: 2,
+            blurRadius: 8,
+            offset: const Offset(0, 4),
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(day, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFFE53935))),
+          Text(
+            day,
+            style: const TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: Color(0xFFE53935),
+            ),
+          ),
           const SizedBox(height: 12),
           if (lessons.isEmpty)
             const Text('Нет занятий', style: TextStyle(color: Colors.grey, fontSize: 14))
@@ -181,21 +291,58 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
     );
   }
 
-  Widget _buildLessonItem(Map<String, String> lesson) {
+  Widget _buildLessonItem(Map<String, dynamic> lesson) {
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(color: Colors.grey[50], borderRadius: BorderRadius.circular(12)),
+      decoration: BoxDecoration(
+        color: Colors.grey[50],
+        borderRadius: BorderRadius.circular(12),
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(lesson['subject']!, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+          Text(
+            lesson['subject'],
+            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+          ),
           const SizedBox(height: 8),
-          Row(children: [Icon(Icons.access_time, size: 16, color: Colors.grey[600]), const SizedBox(width: 4), Text(lesson['time']!, style: TextStyle(color: Colors.grey[700], fontSize: 13))]),
+          Row(
+            children: [
+              Icon(Icons.access_time, size: 16, color: Colors.grey[600]),
+              const SizedBox(width: 4),
+              Text(
+                lesson['time'],
+                style: TextStyle(color: Colors.grey[700], fontSize: 13),
+              ),
+            ],
+          ),
           const SizedBox(height: 4),
-          Row(children: [Icon(Icons.person_outline, size: 16, color: Colors.grey[600]), const SizedBox(width: 4), Expanded(child: Text(lesson['teacher']!, style: TextStyle(color: Colors.grey[700], fontSize: 13), maxLines: 1, overflow: TextOverflow.ellipsis))]),
+          Row(
+            children: [
+              Icon(Icons.person_outline, size: 16, color: Colors.grey[600]),
+              const SizedBox(width: 4),
+              Expanded(
+                child: Text(
+                  lesson['teacher'],
+                  style: TextStyle(color: Colors.grey[700], fontSize: 13),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
           const SizedBox(height: 4),
-          Row(children: [Icon(Icons.meeting_room, size: 16, color: Colors.grey[600]), const SizedBox(width: 4), Text('Ауд. ${lesson['room']}', style: TextStyle(color: Colors.grey[700], fontSize: 13))]),
+          Row(
+            children: [
+              Icon(Icons.meeting_room, size: 16, color: Colors.grey[600]),
+              const SizedBox(width: 4),
+              Text(
+                'Ауд. ${lesson['room']}',
+                style: TextStyle(color: Colors.grey[700], fontSize: 13),
+              ),
+            ],
+          ),
         ],
       ),
     );

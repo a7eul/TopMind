@@ -132,7 +132,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     if (user != null) {
                       final prefs = await SharedPreferences.getInstance();
                       await prefs.setString('current_user', jsonEncode(user));
-                      print('💾 User сохранен: ${user['id']}');
+                      print('Юзер сохранен: ${user['id']}');
 
                       if (!mounted) return;
                       Navigator.pushReplacementNamed(context, '/main');

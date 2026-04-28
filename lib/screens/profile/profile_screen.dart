@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
+import 'dart:io';
+import 'package:http/http.dart' as http;
+import 'package:image_picker/image_picker.dart';
+import 'package:path/path.dart' as path;
 import '../../services/db_service.dart';
 import '../widgets/side_menu.dart';
 
@@ -18,6 +22,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   late final TextEditingController _nameController;
   late final TextEditingController _surnameController;
+
+  static const String _serverUrl = 'http://10.0.2.2:8000';
 
   @override
   void initState() {
@@ -39,9 +45,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
       final user = await DBService.getCurrentUser();
       if (user == null) {
         if (mounted) {
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(const SnackBar(content: Text('Ошибка авторизации')));
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Ошибка авторизации')),
+          );
         }
         return;
       }
@@ -55,10 +61,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
         });
       }
     } catch (e) {
-      print('Ошибка профиля: $e');
-      if (mounted) {
-        setState(() => _isLoading = false);
-      }
+      debugPrint('Ошибка профиля: $e');
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -93,42 +97,34 @@ class _ProfileScreenState extends State<ProfileScreen> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('❌ Ошибка: $e')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('❌ Ошибка: $e')),
+        );
       }
     }
   }
 
   void _editProfile() {
-    if (mounted) {
-      setState(() => _isEditing = true);
-    }
+    if (mounted) setState(() => _isEditing = true);
   }
 
   void _logout() {
     if (!mounted) return;
-
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Выйти'),
         content: const Text('Вы уверены, что хотите выйти?'),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Отмена'),
-          ),
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Отмена')),
           ElevatedButton(
             onPressed: () async {
               final prefs = await SharedPreferences.getInstance();
               await prefs.remove('current_user');
               Navigator.pop(context);
-              Navigator.pushReplacementNamed(context, '/');
+              if (mounted) Navigator.pushReplacementNamed(context, '/');
             },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFFE53935),
-            ),
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFE53935)),
             child: const Text('Выйти'),
           ),
         ],
@@ -136,23 +132,71 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  void _changeAvatar() {
+Future<void> _changeAvatar() async {
+  final ImagePicker picker = ImagePicker();
+  
+  // Эта строка сразу открывает проводник Windows
+  final XFile? pickedFile = await picker.pickImage(
+    source: ImageSource.gallery, 
+    imageQuality: 80, // Немного сжимаем для скорости
+  );
+
+  if (pickedFile == null || !mounted) return;
+
+  try {
+    setState(() => _isLoading = true);
+
+    final uri = Uri.parse('${DBService.baseUrl}/users/${_user!['id']}/avatar');
+    final request = http.MultipartRequest('POST', uri);
+    request.files.add(await http.MultipartFile.fromPath(
+      'file',
+      pickedFile.path,
+      filename: path.basename(pickedFile.path),
+    ));
+
+    final streamedResponse = await request.send();
+    final response = await http.Response.fromStream(streamedResponse);
+
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body);
+      final newAvatarUrl = data['avatar_url'] as String?;
+
+      if (mounted && newAvatarUrl != null) {
+        setState(() {
+          _user!['avatar_url'] = newAvatarUrl;
+          _isLoading = false;
+        });
+        
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('current_user', jsonEncode(_user));
+        
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Аватар обновлён'), backgroundColor: Colors.green),
+        );
+      }
+    } else {
+      throw Exception('Ошибка: ${response.body}');
+    }
+  } catch (e) {
     if (mounted) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Изменить аватар (TODO)')));
+      setState(() => _isLoading = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Ошибка: $e'), backgroundColor: Colors.red),
+      );
     }
   }
+}
 
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
       return const Scaffold(
-        body: Center(
-          child: CircularProgressIndicator(color: Color(0xFFE53935)),
-        ),
+        body: Center(child: CircularProgressIndicator(color: Color(0xFFE53935))),
       );
     }
+
+    final avatarUrl = _user?['avatar_url'] as String?;
+    final hasAvatar = avatarUrl != null && avatarUrl.isNotEmpty;
 
     return Scaffold(
       backgroundColor: const Color(0xFFF0FFFF),
@@ -180,11 +224,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   children: [
                     const Text(
                       'Профиль',
-                      style: TextStyle(
-                        fontSize: 22,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.black,
-                      ),
+                      style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.black),
                     ),
                     const SizedBox(height: 20),
                     Container(
@@ -197,7 +237,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             color: Colors.grey.withOpacity(0.1),
                             spreadRadius: 2,
                             blurRadius: 8,
-                            offset: Offset(0, 4),
+                            offset: const Offset(0, 4),
                           ),
                         ],
                       ),
@@ -205,29 +245,26 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         children: [
                           Stack(
                             children: [
+                              // Фон и картинка
                               Container(
                                 width: 100,
                                 height: 100,
-                                decoration: BoxDecoration(
+                                decoration: const BoxDecoration(
                                   shape: BoxShape.circle,
-                                  image:
-                                      _user?['avatar_url']?.isNotEmpty == true
-                                      ? DecorationImage(
-                                          image: NetworkImage(
-                                            _user!['avatar_url'],
-                                          ),
-                                          fit: BoxFit.cover,
-                                        )
-                                      : null,
-                                  color: Colors.grey[300],
+                                  color: Color(0xFFE0E0E0),
                                 ),
-                                child: _user?['avatar_url']?.isEmpty == true
-                                    ? Icon(
-                                        Icons.person,
-                                        size: 50,
-                                        color: Colors.grey[500],
-                                      )
-                                    : null,
+                                child: ClipOval(
+                                  child: hasAvatar
+                                      ? Image.network(
+                                          avatarUrl,
+                                          fit: BoxFit.cover,
+                                          errorBuilder: (context, error, stackTrace) => Container(
+                                            color: const Color(0xFFE0E0E0),
+                                            child: const Icon(Icons.person, size: 50, color: Color(0xFF9E9E9E)),
+                                          ),
+                                        )
+                                      : const Icon(Icons.person, size: 50, color: Color(0xFF9E9E9E)),
+                                ),
                               ),
                               Positioned(
                                 right: 0,
@@ -239,16 +276,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                     decoration: BoxDecoration(
                                       color: const Color(0xFFE53935),
                                       shape: BoxShape.circle,
-                                      border: Border.all(
-                                        color: Colors.white,
-                                        width: 2,
-                                      ),
+                                      border: Border.all(color: Colors.white, width: 2),
                                     ),
-                                    child: const Icon(
-                                      Icons.camera_alt,
-                                      size: 16,
-                                      color: Colors.white,
-                                    ),
+                                    child: const Icon(Icons.camera_alt, size: 16, color: Colors.white),
                                   ),
                                 ),
                               ),
@@ -257,34 +287,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           const SizedBox(height: 24),
                           Row(
                             children: [
-                              Expanded(
-                                child: Container(
-                                  height: 1,
-                                  color: Colors.grey[300],
-                                ),
-                              ),
-                              Padding(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 12,
-                                ),
-                                child: Text(
-                                  'Данные',
-                                  style: TextStyle(
-                                    color: Colors.grey,
-                                    fontSize: 14,
-                                  ),
-                                ),
-                              ),
-                              Expanded(
-                                child: Container(
-                                  height: 1,
-                                  color: Colors.grey[300],
-                                ),
-                              ),
+                              Expanded(child: Container(height: 1, color: const Color(0xFFE0E0E0))),
+                              const Padding(padding: EdgeInsets.symmetric(horizontal: 12), child: Text('Данные', style: TextStyle(color: Color(0xFF757575), fontSize: 14))),
+                              Expanded(child: Container(height: 1, color: const Color(0xFFE0E0E0))),
                             ],
                           ),
                           const SizedBox(height: 24),
-
                           _buildTextField(
                             controller: _nameController,
                             label: 'Имя',
@@ -302,72 +310,28 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           Row(
                             children: [
                               Expanded(
-                                child: Container(
-                                  height: 1,
-                                  color: Colors.grey[300],
-                                ),
-                              ),
-                              const Padding(
-                                padding: EdgeInsets.symmetric(horizontal: 12),
-                              ),
-                              Expanded(
-                                child: Container(
-                                  height: 1,
-                                  color: Colors.grey[300],
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 24),
-                          Row(
-                            children: [
-                              Expanded(
                                 child: ElevatedButton(
                                   onPressed: _logout,
                                   style: ElevatedButton.styleFrom(
                                     backgroundColor: const Color(0xFFE53935),
                                     foregroundColor: Colors.white,
-                                    padding: const EdgeInsets.symmetric(
-                                      vertical: 12,
-                                    ),
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(12),
-                                    ),
+                                    padding: const EdgeInsets.symmetric(vertical: 12),
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                                   ),
-                                  child: const Text(
-                                    'Выйти',
-                                    style: TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
+                                  child: const Text('Выйти', style: TextStyle(fontWeight: FontWeight.bold)),
                                 ),
                               ),
                               const SizedBox(width: 12),
                               Expanded(
                                 child: ElevatedButton(
-                                  onPressed: _isEditing
-                                      ? _saveProfile
-                                      : _editProfile,
+                                  onPressed: _isEditing ? _saveProfile : _editProfile,
                                   style: ElevatedButton.styleFrom(
-                                    backgroundColor: _isEditing
-                                        ? const Color(0xFFE53935)
-                                        : Colors.grey[300]!,
-                                    foregroundColor: _isEditing
-                                        ? Colors.white
-                                        : Colors.black87,
-                                    padding: const EdgeInsets.symmetric(
-                                      vertical: 12,
-                                    ),
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(12),
-                                    ),
+                                    backgroundColor: _isEditing ? const Color(0xFFE53935) : const Color(0xFFE0E0E0),
+                                    foregroundColor: _isEditing ? Colors.white : const Color(0xFF212121),
+                                    padding: const EdgeInsets.symmetric(vertical: 12),
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                                   ),
-                                  child: Text(
-                                    _isEditing ? 'Сохранить' : 'Редактировать',
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
+                                  child: Text(_isEditing ? 'Сохранить' : 'Редактировать', style: const TextStyle(fontWeight: FontWeight.bold)),
                                 ),
                               ),
                             ],
@@ -381,10 +345,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
             ),
             Align(
               alignment: Alignment.centerRight,
-              child: Container(
-                margin: const EdgeInsets.only(right: 12),
-                child: const SideMenu(activeIndex: 0),
-              ),
+              child: Container(margin: const EdgeInsets.only(right: 12), child: const SideMenu(activeIndex: 0)),
             ),
           ],
         ),
@@ -404,16 +365,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
       decoration: InputDecoration(
         labelText: label,
         prefixIcon: Icon(icon, color: const Color(0xFFE53935)),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide.none,
-        ),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
         filled: true,
-        fillColor: enabled ? Colors.grey[100]! : Colors.grey[200]!,
-        contentPadding: const EdgeInsets.symmetric(
-          horizontal: 16,
-          vertical: 12,
-        ),
+        fillColor: enabled ? const Color(0xFFF5F5F5) : const Color(0xFFEEEEEE),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       ),
     );
   }

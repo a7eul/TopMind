@@ -26,7 +26,7 @@ class _ChatsListScreenState extends State<ChatsListScreen> {
       final userId = user?['id'] ?? 1;
       
       final chats = await DBService.getUserChats(userId);
-      print('📱 Загружено чатов: ${chats.length}');
+      print('Загружено чатов: ${chats.length}');
       
       setState(() {
         _chats = chats.map((chat) => {
