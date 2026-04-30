@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'screens/auth/login_screen.dart';
-import 'screens/auth/register_screen.dart';
 import 'screens/home/chats_list_screen.dart';
 import 'screens/chat/chat_screen.dart';
 import 'screens/schedule/schedule_screen.dart';
@@ -43,7 +42,6 @@ class MyApp extends StatelessWidget {
       initialRoute: '/',
       routes: {
         '/': (context) => const LoginScreen(),
-        '/register': (context) => const RegisterScreen(),
         '/main': (context) => const ChatsListScreen(),
         '/schedule': (context) => const ScheduleScreen(),
         '/profile': (context) => const ProfileScreen(),

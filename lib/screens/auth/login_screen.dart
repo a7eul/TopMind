@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import '../../services/db_service.dart';
-import 'register_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 
@@ -159,24 +158,6 @@ class _LoginScreenState extends State<LoginScreen> {
                       fontSize: 16,
                       fontWeight: FontWeight.bold,
                     ),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 20),
-              TextButton(
-                onPressed: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => const RegisterScreen(),
-                    ),
-                  );
-                },
-                child: const Text(
-                  'Нет аккаунта? Зарегистрироваться',
-                  style: TextStyle(
-                    color: Color(0xFFE53935),
-                    fontSize: 14,
                   ),
                 ),
               ),

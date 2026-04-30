@@ -165,23 +165,6 @@ class DBService {
     }
   }
 
-  static Future<bool> register(String firstName, String lastName, String login, String password) async {
-    try {
-      final response = await http.post(
-        Uri.parse('$baseUrl/auth/register'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'first_name': firstName,
-          'last_name': lastName,
-          'login': login,
-          'password': password,
-        }),
-      );
-      return response.statusCode == 200 || response.statusCode == 201;
-    } catch (e) {
-      return false;
-    }
-  }
 
   static Future<Map<String, dynamic>?> getChatInfo(int chatId) async {
     try {
