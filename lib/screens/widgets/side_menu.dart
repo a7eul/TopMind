@@ -53,7 +53,7 @@ class SideMenu extends StatelessWidget {
           const SizedBox(height: 24),
           _buildNavItem(
             icon: Icons.settings_outlined,
-            label: 'Настройки\n(будут)',
+            label: 'Настройки',
             index: 3,
             context: context,
             isActive: activeIndex == 3,

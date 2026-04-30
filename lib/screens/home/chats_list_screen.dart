@@ -46,7 +46,6 @@ class _ChatsListScreenState extends State<ChatsListScreen> {
           _userId!,
         );
 
-        // ✅ Исправленная логика: если имя пустое, ставим дефолт, иначе оставляем то, что прислал сервер
         String name = chat['name']?.toString().trim() ?? '';
         if (name.isEmpty) {
           name = chat['type'] == 'group' ? 'Групповой чат' : 'Личная переписка';
@@ -68,7 +67,6 @@ class _ChatsListScreenState extends State<ChatsListScreen> {
         });
       }
     } catch (e) {
-      print('❌ Ошибка загрузки чатов: $e');
       if (mounted) setState(() => _isLoading = false);
     }
   }

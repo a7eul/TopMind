@@ -7,16 +7,15 @@ import 'screens/schedule/schedule_screen.dart';
 import 'screens/profile/profile_screen.dart';
 import 'services/db_service.dart';
 
-// Тест БД (можно убрать после проверки)
 Future<void> testDB() async {
   try {
     final chats = await DBService.getUserChats(1);
-    debugPrint('✅ Чаты загружены: ${chats.length}');
+    debugPrint('Чаты загружены: ${chats.length}');
   } catch (e) {
-    debugPrint('❌ DB error: $e');
+    debugPrint('DB error: $e');
   }
 }
-    
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await testDB();
@@ -50,26 +49,22 @@ class MyApp extends StatelessWidget {
         '/profile': (context) => const ProfileScreen(),
       },
       onGenerateRoute: (settings) {
-        // 🔥 Маршрут для чата с правильными типами
         if (settings.name == '/chat') {
-          // Ожидаем аргументы как Map<String, dynamic> (не String!)
           final args = settings.arguments as Map<String, dynamic>?;
-          
+
           if (args == null) {
-            debugPrint('❌ Нет аргументов для /chat');
             return null;
           }
-          
-          // 🔥 Парсим int правильно
+
           final chatId = args['chatId'] as int;
           final chatName = args['chatName'] as String;
-          final userId = args['userId'] as int; // 🔥 Обязательно!
-          
+          final userId = args['userId'] as int;
+
           return MaterialPageRoute(
             builder: (context) => ChatScreen(
               chatName: chatName,
-              chatId: chatId,      // int, не String!
-              userId: userId,      // 🔥 Передаём userId
+              chatId: chatId,
+              userId: userId,
             ),
           );
         }

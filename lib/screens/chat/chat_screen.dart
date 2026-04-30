@@ -37,7 +37,7 @@ class _ChatScreenState extends State<ChatScreen> {
   List<Map<String, dynamic>> _messages = [];
   bool _isLoading = true;
   bool _isSending = false;
-  bool _isUploading = false; // 🔥 Одна переменная для всех загрузок
+  bool _isUploading = false;
   XFile? _selectedImage;
   PlatformFile? _selectedFile;
 
@@ -61,19 +61,22 @@ class _ChatScreenState extends State<ChatScreen> {
       final msgs = await DBService.getMessages(widget.chatId);
       if (!mounted) return;
       setState(() {
-        _messages = msgs;
+        _messages = msgs.reversed.toList();
         _isLoading = false;
       });
+
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (widget.unreadCount > 0 && _messages.length >= widget.unreadCount) {
-          _scrollToFirstUnread();
-        } else {
-          _scrollToBottom();
+        if (_scrollController.hasClients) {
+          _scrollController.animateTo(
+            _scrollController.position.maxScrollExtent,
+            duration: const Duration(milliseconds: 300),
+            curve: Curves.easeOut,
+          );
         }
       });
+
       DBService.markAsRead(widget.chatId, widget.userId);
     } catch (e) {
-      print('❌ Ошибка загрузки: $e');
       if (mounted) {
         setState(() => _isLoading = false);
         ScaffoldMessenger.of(context).showSnackBar(
@@ -84,12 +87,15 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   void _scrollToBottom() {
-    if (!_scrollController.hasClients) return;
-    _scrollController.animateTo(
-      _scrollController.position.maxScrollExtent,
-      duration: const Duration(milliseconds: 300),
-      curve: Curves.easeOut,
-    );
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _scrollController.hasClients) {
+        _scrollController.animateTo(
+          _scrollController.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 250),
+          curve: Curves.easeOut,
+        );
+      }
+    });
   }
 
   void _scrollToFirstUnread() {
@@ -105,7 +111,6 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
-  // 🔥 Выбор фото
   Future<void> _pickImage() async {
     final picker = ImagePicker();
     final pickedFile = await picker.pickImage(source: ImageSource.gallery);
@@ -117,7 +122,6 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
-  // 🔥 Выбор любого файла
   Future<void> _pickFile() async {
     try {
       final result = await FilePicker.platform.pickFiles(
@@ -139,7 +143,6 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
-  // 🔥 Отмена выбора
   void _cancelSelection() {
     setState(() {
       _selectedImage = null;
@@ -147,76 +150,39 @@ class _ChatScreenState extends State<ChatScreen> {
     });
   }
 
-  // 🔥 Отправка фото
- // 🔥 Отправка фото
-Future<void> _sendImageMessage() async {
-  if (_selectedImage == null) return;
-  print('🚀 Начинаю отправку фото...');
-  setState(() => _isUploading = true);
-  try {
-    final success = await DBService.sendImageMessage(
-      widget.chatId,
-      widget.userId,
-      _selectedImage!.path,
-    );
-    print('📊 Результат: $success');
-    if (success && mounted) {
-      print('✅ Успешно, обновляю чат...');
-      setState(() {
-        _selectedImage = null;
-        _isUploading = false;
-      });
-      await _loadMessages();
-      _scrollToBottom();
-    } else {
-      print('❌ Не успешно или не mounted');
-    }
-  } catch (e) {
-    print('💥 Ошибка: $e');
-    if (mounted) {
-      setState(() => _isUploading = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Ошибка: $e'), backgroundColor: Colors.red),
+  Future<void> _sendFileMessage() async {
+    if (_selectedFile == null) return;
+    setState(() => _isUploading = true);
+    try {
+      final success = await DBService.sendFileMessage(
+        widget.chatId,
+        widget.userId,
+        _selectedFile!.path!,
+        _selectedFile!.name,
       );
+      if (success && mounted) {
+        setState(() {
+          _selectedFile = null;
+          _isUploading = false;
+        });
+        await _loadMessages();
+        _scrollToBottom();
+      } else if (mounted) {
+        setState(() => _isUploading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Не удалось отправить файл'), backgroundColor: Colors.red),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isUploading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Ошибка: $e'), backgroundColor: Colors.red),
+        );
+      }
     }
   }
-}
 
-// 🔥 Отправка файла
-Future<void> _sendFileMessage() async {
-  if (_selectedFile == null) return;
-  print('🚀 Начинаю отправку файла: ${_selectedFile!.name}');
-  setState(() => _isUploading = true);
-  try {
-    final success = await DBService.sendFileMessage(
-      widget.chatId,
-      widget.userId,
-      _selectedFile!.path!,
-      _selectedFile!.name,
-    );
-    print('📊 Результат: $success');
-    if (success && mounted) {
-      print('✅ Успешно, обновляю чат...');
-      setState(() {
-        _selectedFile = null;
-        _isUploading = false;
-      });
-      await _loadMessages();
-      _scrollToBottom();
-    } else {
-      print('❌ Не успешно или не mounted');
-    }
-  } catch (e) {
-    print('💥 Ошибка: $e');
-    if (mounted) {
-      setState(() => _isUploading = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Ошибка: $e'), backgroundColor: Colors.red),
-      );
-    }
-  }
-}
-  // 🔥 Отправка текста
   Future<void> _sendMessage() async {
     if (_controller.text.trim().isEmpty || _isSending) return;
     final content = _controller.text.trim();
@@ -234,12 +200,21 @@ Future<void> _sendFileMessage() async {
         'isTemp': true,
       });
     });
-    WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_scrollController.hasClients) {
+        _scrollController.animateTo(
+          _scrollController.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeOut,
+        );
+      }
+    });
+
     try {
       final success = await DBService.sendMessage(widget.chatId, widget.userId, content);
       if (success && mounted) {
         await _loadMessages();
-        if (mounted) setState(() => _isSending = false);
       } else if (mounted) {
         setState(() {
           if (tempIndex < _messages.length) _messages.removeAt(tempIndex);
@@ -262,7 +237,6 @@ Future<void> _sendFileMessage() async {
     }
   }
 
-  // 🔥 Просмотр фото на весь экран
   void _showFullImage(String imageUrl) {
     showDialog(
       context: context,
@@ -282,7 +256,6 @@ Future<void> _sendFileMessage() async {
     );
   }
 
-  // 🔥 Открытие файла
   Future<void> _openFile(String fileUrl, String fileName) async {
     try {
       final directory = await getApplicationDocumentsDirectory();
@@ -300,7 +273,6 @@ Future<void> _sendFileMessage() async {
     }
   }
 
-  // 🔥 Иконка файла по расширению
   Icon _getFileIcon(String? fileName) {
     if (fileName == null) return const Icon(Icons.insert_drive_file, color: Colors.grey);
     final ext = fileName.split('.').last.toLowerCase();
@@ -320,7 +292,6 @@ Future<void> _sendFileMessage() async {
     }
   }
 
-  // 🔥 Форматирование размера
   String _formatFileSize(int bytes) {
     if (bytes < 1024) return '$bytes B';
     if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
@@ -336,7 +307,7 @@ Future<void> _sendFileMessage() async {
       return '';
     }
   }
-  
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -369,19 +340,22 @@ Future<void> _sendFileMessage() async {
             child: _isLoading
                 ? const Center(child: CircularProgressIndicator(color: Color(0xFFE53935)))
                 : ListView.builder(
+                    reverse: false,
                     controller: _scrollController,
                     padding: const EdgeInsets.all(12),
                     itemCount: _messages.length,
                     itemBuilder: (context, index) {
                       final msg = _messages[index];
                       final isMe = msg['sender_id'] == widget.userId;
+
                       final imageUrl = msg['image_url'] as String?;
                       final fileUrl = msg['file_url'] as String?;
                       final fileName = msg['file_name'] as String?;
                       final fileSize = msg['file_size'] as int?;
-                      
+
                       final hasImage = imageUrl != null && imageUrl.isNotEmpty;
                       final hasFile = fileUrl != null && fileUrl.isNotEmpty && fileName != null;
+                      final hasText = msg['content'] != null && msg['content'].toString().isNotEmpty;
 
                       return Align(
                         alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
@@ -416,43 +390,40 @@ Future<void> _sendFileMessage() async {
                                 ),
                                 const SizedBox(height: 4),
                               ],
-                              
-                              // 🔥 Фото
+
                               if (hasImage) ...[
                                 ClipRRect(
                                   borderRadius: BorderRadius.circular(12),
                                   child: GestureDetector(
                                     onTap: () => _showFullImage(imageUrl!),
-                                    child: Image.network(
-                                      imageUrl,
-                                      fit: BoxFit.cover,
-                                      loadingBuilder: (context, child, loadingProgress) {
-                                        if (loadingProgress == null) return child;
-                                        return Container(
+                                    child: Container(
+                                      constraints: const BoxConstraints(
+                                        maxHeight: 200,
+                                        maxWidth: double.infinity,
+                                      ),
+                                      child: Image.network(
+                                        imageUrl!,
+                                        fit: BoxFit.contain,
+                                        loadingBuilder: (context, child, loadingProgress) {
+                                          if (loadingProgress == null) return child;
+                                          return const SizedBox(
+                                            height: 200,
+                                            child: Center(child: CircularProgressIndicator()),
+                                          );
+                                        },
+                                        errorBuilder: (_, __, ___) => Container(
                                           height: 150,
                                           alignment: Alignment.center,
-                                          child: CircularProgressIndicator(
-                                            value: loadingProgress.expectedTotalBytes != null
-                                                ? loadingProgress.cumulativeBytesLoaded / loadingProgress.expectedTotalBytes!
-                                                : null,
-                                            color: isMe ? Colors.white : const Color(0xFFE53935),
-                                          ),
-                                        );
-                                      },
-                                      errorBuilder: (_, __, ___) => Container(
-                                        height: 150,
-                                        alignment: Alignment.center,
-                                        color: Colors.grey[300],
-                                        child: const Icon(Icons.broken_image, color: Colors.grey),
+                                          color: Colors.grey[300],
+                                          child: const Icon(Icons.broken_image, color: Colors.grey),
+                                        ),
                                       ),
                                     ),
                                   ),
                                 ),
-                                if (msg['content'] != null && msg['content'].toString().isNotEmpty)
-                                  const SizedBox(height: 8),
+                                if (hasText) const SizedBox(height: 8),
                               ],
-                              
-                              // 🔥 Файл
+
                               if (hasFile) ...[
                                 GestureDetector(
                                   onTap: () => _openFile(fileUrl!, fileName!),
@@ -502,12 +473,10 @@ Future<void> _sendFileMessage() async {
                                     ),
                                   ),
                                 ),
-                                if (msg['content'] != null && msg['content'].toString().isNotEmpty)
-                                  const SizedBox(height: 8),
+                                if (hasText) const SizedBox(height: 8),
                               ],
-                              
-                              // 🔥 Текст
-                              if (msg['content'] != null && msg['content'].toString().isNotEmpty)
+
+                              if (hasText)
                                 Text(
                                   msg['content'] ?? '',
                                   style: TextStyle(
@@ -515,7 +484,7 @@ Future<void> _sendFileMessage() async {
                                     fontSize: 15,
                                   ),
                                 ),
-                              
+
                               if (msg['created_at'] != null) ...[
                                 const SizedBox(height: 4),
                                 Align(
@@ -536,8 +505,7 @@ Future<void> _sendFileMessage() async {
                     },
                   ),
           ),
-          
-          // 🔥 Превью выбранного фото ИЛИ файла
+
           if (_selectedImage != null || _selectedFile != null)
             Container(
               padding: const EdgeInsets.all(8),
@@ -610,8 +578,7 @@ Future<void> _sendFileMessage() async {
                 ],
               ),
             ),
-          
-          // 🔥 Поле ввода + кнопки
+
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             decoration: BoxDecoration(
@@ -626,7 +593,6 @@ Future<void> _sendFileMessage() async {
             ),
             child: Row(
               children: [
-                // 🔥 Кнопка скрепки (меню)
                 PopupMenuButton<String>(
                   icon: const Icon(Icons.attach_file, color: Color(0xFFE53935)),
                   onSelected: (value) {
@@ -674,7 +640,6 @@ Future<void> _sendFileMessage() async {
                   ),
                 ),
                 const SizedBox(width: 8),
-                // 🔥 Кнопка отправки
                 _isSending || _isUploading
                     ? const SizedBox(
                         width: 24,
@@ -699,5 +664,36 @@ Future<void> _sendFileMessage() async {
       ),
     );
   }
-  
+
+  Future<void> _sendImageMessage() async {
+    if (_selectedImage == null) return;
+    setState(() => _isUploading = true);
+    try {
+      final success = await DBService.sendImageMessage(
+        widget.chatId,
+        widget.userId,
+        _selectedImage!.path,
+      );
+      if (success && mounted) {
+        setState(() {
+          _selectedImage = null;
+          _isUploading = false;
+        });
+        await _loadMessages();
+        _scrollToBottom();
+      } else if (mounted) {
+        setState(() => _isUploading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Не удалось отправить фото'), backgroundColor: Colors.red),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isUploading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Ошибка: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
 }

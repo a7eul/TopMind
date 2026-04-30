@@ -23,8 +23,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
   late final TextEditingController _nameController;
   late final TextEditingController _surnameController;
 
-  static const String _serverUrl = 'http://10.0.2.2:8000';
-
   @override
   void initState() {
     super.initState();
@@ -61,7 +59,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
         });
       }
     } catch (e) {
-      debugPrint('Ошибка профиля: $e');
       if (mounted) setState(() => _isLoading = false);
     }
   }
@@ -86,19 +83,19 @@ class _ProfileScreenState extends State<ProfileScreen> {
         setState(() => _isEditing = false);
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('✅ Профиль обновлен'),
+            content: Text('Профиль обновлен'),
             backgroundColor: Colors.green,
           ),
         );
       } else if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('❌ Не удалось обновить профиль')),
+          const SnackBar(content: Text('Не удалось обновить профиль')),
         );
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('❌ Ошибка: $e')),
+          SnackBar(content: Text('Ошибка: $e')),
         );
       }
     }
@@ -124,7 +121,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               Navigator.pop(context);
               if (mounted) Navigator.pushReplacementNamed(context, '/');
             },
-            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFE53935), foregroundColor: Colors.white,),
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFE53935), foregroundColor: Colors.white),
             child: const Text('Выйти'),
           ),
         ],
@@ -132,60 +129,58 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-Future<void> _changeAvatar() async {
-  final ImagePicker picker = ImagePicker();
-  
-  // Эта строка сразу открывает проводник Windows
-  final XFile? pickedFile = await picker.pickImage(
-    source: ImageSource.gallery, 
-    imageQuality: 80, // Немного сжимаем для скорости
-  );
+  Future<void> _changeAvatar() async {
+    final ImagePicker picker = ImagePicker();
+    final XFile? pickedFile = await picker.pickImage(
+      source: ImageSource.gallery,
+      imageQuality: 80,
+    );
 
-  if (pickedFile == null || !mounted) return;
+    if (pickedFile == null || !mounted) return;
 
-  try {
-    setState(() => _isLoading = true);
+    try {
+      setState(() => _isLoading = true);
 
-    final uri = Uri.parse('${DBService.baseUrl}/users/${_user!['id']}/avatar');
-    final request = http.MultipartRequest('POST', uri);
-    request.files.add(await http.MultipartFile.fromPath(
-      'file',
-      pickedFile.path,
-      filename: path.basename(pickedFile.path),
-    ));
+      final uri = Uri.parse('${DBService.baseUrl}/users/${_user!['id']}/avatar');
+      final request = http.MultipartRequest('POST', uri);
+      request.files.add(await http.MultipartFile.fromPath(
+        'file',
+        pickedFile.path,
+        filename: path.basename(pickedFile.path),
+      ));
 
-    final streamedResponse = await request.send();
-    final response = await http.Response.fromStream(streamedResponse);
+      final streamedResponse = await request.send();
+      final response = await http.Response.fromStream(streamedResponse);
 
-    if (response.statusCode == 200) {
-      final data = jsonDecode(response.body);
-      final newAvatarUrl = data['avatar_url'] as String?;
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final newAvatarUrl = data['avatar_url'] as String?;
 
-      if (mounted && newAvatarUrl != null) {
-        setState(() {
-          _user!['avatar_url'] = newAvatarUrl;
-          _isLoading = false;
-        });
-        
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setString('current_user', jsonEncode(_user));
-        
+        if (mounted && newAvatarUrl != null) {
+          setState(() {
+            _user!['avatar_url'] = newAvatarUrl;
+            _isLoading = false;
+          });
+
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setString('current_user', jsonEncode(_user));
+
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Аватар обновлен'), backgroundColor: Colors.green),
+          );
+        }
+      } else {
+        throw Exception('Ошибка: ${response.body}');
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isLoading = false);
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Аватар обновлён'), backgroundColor: Colors.green),
+          SnackBar(content: Text('Ошибка: $e'), backgroundColor: Colors.red),
         );
       }
-    } else {
-      throw Exception('Ошибка: ${response.body}');
-    }
-  } catch (e) {
-    if (mounted) {
-      setState(() => _isLoading = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Ошибка: $e'), backgroundColor: Colors.red),
-      );
     }
   }
-}
 
   @override
   Widget build(BuildContext context) {
@@ -245,7 +240,6 @@ Future<void> _changeAvatar() async {
                         children: [
                           Stack(
                             children: [
-                              // Фон и картинка
                               Container(
                                 width: 100,
                                 height: 100,
@@ -256,7 +250,7 @@ Future<void> _changeAvatar() async {
                                 child: ClipOval(
                                   child: hasAvatar
                                       ? Image.network(
-                                          avatarUrl,
+                                          avatarUrl!,
                                           fit: BoxFit.cover,
                                           errorBuilder: (context, error, stackTrace) => Container(
                                             color: const Color(0xFFE0E0E0),

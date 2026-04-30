@@ -32,7 +32,7 @@ class _SelectUserScreenState extends State<SelectUserScreen> {
         widget.userGroupId,
         widget.currentUserId,
       );
-      
+
       if (mounted) {
         setState(() {
           _users = users;
@@ -40,17 +40,12 @@ class _SelectUserScreenState extends State<SelectUserScreen> {
         });
       }
     } catch (e) {
-      print('❌ Ошибка загрузки пользователей: $e');
       if (mounted) setState(() => _isLoading = false);
     }
   }
 
   Future<void> _startChat(Map<String, dynamic> selectedUser) async {
     try {
-      print('🔍 Попытка создать чат:');
-      print('  Текущий пользователь: ${widget.currentUserId}');
-      print('  Выбранный пользователь: ${selectedUser['id']} (${selectedUser['first_name']})');
-
       showDialog(
         context: context,
         barrierDismissible: false,
@@ -61,16 +56,13 @@ class _SelectUserScreenState extends State<SelectUserScreen> {
         widget.currentUserId,
         selectedUser['id'] as int,
       );
-      
-      print('📦 Ответ от сервера: $chatData');
 
-      if (mounted) Navigator.pop(context); // Убираем лоадер
+      if (mounted) Navigator.pop(context);
 
       if (chatData != null) {
         final chatId = chatData['chat_id'] as int;
         final chatName = '${selectedUser['first_name']} ${selectedUser['last_name']}'.trim();
-        
-        // 🔥 ВОЗВРАЩАЕМ РЕЗУЛЬТАТ вместо pushReplacement
+
         if (mounted) {
           Navigator.pop(context, {
             'chatId': chatId,
@@ -79,7 +71,6 @@ class _SelectUserScreenState extends State<SelectUserScreen> {
           });
         }
       } else {
-        print('❌ chatData is null');
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Не удалось создать чат'), backgroundColor: Colors.red),
@@ -87,7 +78,6 @@ class _SelectUserScreenState extends State<SelectUserScreen> {
         }
       }
     } catch (e) {
-      print('💥 Ошибка в _startChat: $e');
       if (mounted) Navigator.pop(context);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -124,7 +114,7 @@ class _SelectUserScreenState extends State<SelectUserScreen> {
                     final lastName = user['last_name'] ?? '';
                     final avatarUrl = user['avatar_url'] as String?;
                     final hasAvatar = avatarUrl != null && avatarUrl.isNotEmpty;
-                    
+
                     return InkWell(
                       onTap: () => _startChat(user),
                       child: Container(
@@ -161,10 +151,6 @@ class _SelectUserScreenState extends State<SelectUserScreen> {
                                   Text(
                                     '$firstName $lastName'.trim(),
                                     style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                                  ),
-                                  Text(
-                                    user['login'] ?? '',
-                                    style: TextStyle(color: Colors.grey[600], fontSize: 14),
                                   ),
                                 ],
                               ),
