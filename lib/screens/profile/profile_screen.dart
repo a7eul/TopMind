@@ -124,7 +124,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               Navigator.pop(context);
               if (mounted) Navigator.pushReplacementNamed(context, '/');
             },
-            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFE53935)),
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFE53935), foregroundColor: Colors.white,),
             child: const Text('Выйти'),
           ),
         ],

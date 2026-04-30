@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
-import '../../services/db_service.dart';  
+import '../../services/db_service.dart';
 import '../widgets/side_menu.dart';
 import '../chat/chat_screen.dart';
+import '../chat/select_user_screen.dart';
 
 class ChatsListScreen extends StatefulWidget {
   const ChatsListScreen({super.key});
@@ -13,6 +14,7 @@ class ChatsListScreen extends StatefulWidget {
 class _ChatsListScreenState extends State<ChatsListScreen> {
   List<Map<String, dynamic>> _chats = [];
   bool _isLoading = true;
+  int? _userId;
 
   @override
   void initState() {
@@ -22,33 +24,53 @@ class _ChatsListScreenState extends State<ChatsListScreen> {
 
   Future<void> _loadChats() async {
     try {
-      final user = await DBService.getCurrentUser();  
-      final userId = user?['id'] ?? 1;
-      
-      final chats = await DBService.getUserChats(userId);
-      print('Загружено чатов: ${chats.length}');
-      
-      setState(() {
-        _chats = chats.map((chat) => {
-          'id': chat['id'].toString(),
-          'name': chat['name'] ?? 'Без названия',
-          'lastMsg': chat['last_message'] ?? 'Пока нет сообщений',
-          'time': _formatTime(chat['last_message_time'] ?? DateTime.now()),
-          'avatar': chat['image_url'] ?? '',
-          'unread': chat['unread_count'] ?? 0,
-        }).toList();
-        _isLoading = false;
-      });
-    } catch (e) {
-      print('Ошибка чатов: $e');
-      setState(() => _isLoading = false);
-    }
-  }
+      final user = await DBService.getCurrentUser();
+      if (user == null) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Ошибка авторизации')),
+          );
+        }
+        return;
+      }
 
-  String _formatTime(DateTime time) {
-    final now = DateTime.now();
-    if (now.difference(time).inDays > 0) return '${time.day}.${time.month}';
-    return '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
+      _userId = user['id'] as int;
+      final chats = await DBService.getUserChats(_userId!);
+
+      if (!mounted) return;
+
+      final updatedChats = <Map<String, dynamic>>[];
+      for (final chat in chats) {
+        final unread = await DBService.getUnreadCount(
+          chat['id'] as int,
+          _userId!,
+        );
+
+        // ✅ Исправленная логика: если имя пустое, ставим дефолт, иначе оставляем то, что прислал сервер
+        String name = chat['name']?.toString().trim() ?? '';
+        if (name.isEmpty) {
+          name = chat['type'] == 'group' ? 'Групповой чат' : 'Личная переписка';
+        }
+
+        updatedChats.add({
+          'id': chat['id'] as int,
+          'name': name,
+          'type': chat['type'] ?? 'group',
+          'avatar': chat['image_url'] ?? '',
+          'unread': unread,
+        });
+      }
+
+      if (mounted) {
+        setState(() {
+          _chats = updatedChats;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      print('❌ Ошибка загрузки чатов: $e');
+      if (mounted) setState(() => _isLoading = false);
+    }
   }
 
   @override
@@ -70,7 +92,6 @@ class _ChatsListScreenState extends State<ChatsListScreen> {
       body: SafeArea(
         child: Stack(
           children: [
-            // Левая часть
             Padding(
               padding: const EdgeInsets.only(right: 90.0),
               child: Column(
@@ -84,36 +105,36 @@ class _ChatsListScreenState extends State<ChatsListScreen> {
                     ),
                   ),
                   Expanded(
-                    child: _isLoading 
-                      ? const Center(child: CircularProgressIndicator(color: Color(0xFFE53935)))
-                      : _chats.isEmpty
-                        ? const Center(
-                            child: Text(
-                              'Пока нет чатов\nНажмите "+" для создания',
-                              textAlign: TextAlign.center,
-                              style: TextStyle(color: Colors.grey, fontSize: 16),
-                            ),
-                          )
-                        : Container(
-                            margin: const EdgeInsets.symmetric(horizontal: 16),
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(24),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: Colors.grey.withOpacity(0.1),
-                                  spreadRadius: 2,
-                                  blurRadius: 8,
-                                  offset: const Offset(0, 4),
+                    child: _isLoading
+                        ? const Center(child: CircularProgressIndicator(color: Color(0xFFE53935)))
+                        : _chats.isEmpty
+                            ? const Center(
+                                child: Text(
+                                  'Пока нет чатов',
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(color: Colors.grey, fontSize: 16),
                                 ),
-                              ],
-                            ),
-                            child: ListView.builder(
-                              padding: const EdgeInsets.symmetric(vertical: 8),
-                              itemCount: _chats.length,
-                              itemBuilder: (context, index) => _buildChatItem(_chats[index]),
-                            ),
-                          ),
+                              )
+                            : Container(
+                                margin: const EdgeInsets.symmetric(horizontal: 16),
+                                decoration: BoxDecoration(
+                                  color: Colors.white,
+                                  borderRadius: BorderRadius.circular(24),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: Colors.grey.withOpacity(0.1),
+                                      spreadRadius: 2,
+                                      blurRadius: 8,
+                                      offset: const Offset(0, 4),
+                                    ),
+                                  ],
+                                ),
+                                child: ListView.builder(
+                                  padding: const EdgeInsets.symmetric(vertical: 8),
+                                  itemCount: _chats.length,
+                                  itemBuilder: (context, index) => _buildChatItem(_chats[index]),
+                                ),
+                              ),
                   ),
                 ],
               ),
@@ -129,98 +150,125 @@ class _ChatsListScreenState extends State<ChatsListScreen> {
         ),
       ),
       floatingActionButton: FloatingActionButton(
-        onPressed: _createNewChat,  // TODO
+        onPressed: _createNewChat,
         backgroundColor: const Color(0xFFE53935),
         child: const Icon(Icons.add, color: Colors.white),
       ),
     );
   }
 
-  void _createNewChat() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Создание чата...')),
+  void _createNewChat() async {
+    if (_userId == null) return;
+
+    final user = await DBService.getCurrentUser();
+    if (user == null) return;
+
+    final groupId = user['group_id'] as int?;
+    if (groupId == null || groupId == 0) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Ваша группа не определена'), backgroundColor: Colors.red),
+        );
+      }
+      return;
+    }
+
+    final result = await Navigator.push<Map<String, dynamic>>(
+      context,
+      MaterialPageRoute(
+        builder: (context) => SelectUserScreen(
+          currentUserId: _userId!,
+          userGroupId: groupId,
+        ),
+      ),
     );
+
+    if (result != null && mounted) {
+      await _loadChats();
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => ChatScreen(
+            chatId: result['chatId'] as int,
+            chatName: result['chatName'] as String,
+            userId: _userId!,
+            unreadCount: result['unreadCount'] as int? ?? 0,
+          ),
+        ),
+      );
+    }
   }
 
   Widget _buildChatItem(Map<String, dynamic> chat) {
+    final avatarUrl = chat['avatar'] as String?;
+    final hasAvatar = avatarUrl != null && avatarUrl.isNotEmpty;
     final unreadCount = chat['unread'] as int? ?? 0;
-    
+    final chatName = chat['name']?.toString() ?? 'Чат';
+
     return InkWell(
       onTap: () {
+        if (_userId == null) return;
         Navigator.push(
           context,
           MaterialPageRoute(
             builder: (context) => ChatScreen(
-              chatName: chat['name'],
-              chatId: chat['id'],
+              chatName: chatName,
+              chatId: chat['id'] as int,
+              userId: _userId!,
+              unreadCount: unreadCount,
+              chatType: chat['type'] as String? ?? 'group',
             ),
           ),
-        );
+        ).then((_) => _loadChats());
       },
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
         child: Row(
           children: [
-            // Аватар чата
             Container(
               width: 48,
               height: 48,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                image: chat['avatar'].isNotEmpty
-                  ? DecorationImage(image: NetworkImage(chat['avatar']), fit: BoxFit.cover)
-                  : null,
-                color: chat['avatar'].isEmpty ? Colors.grey[200] : null,
+              decoration: const BoxDecoration(shape: BoxShape.circle, color: Color(0xFFE0E0E0)),
+              child: ClipOval(
+                child: hasAvatar
+                    ? Image.network(avatarUrl, fit: BoxFit.cover, errorBuilder: (_, __, ___) => _buildAvatarIcon(chat['type']))
+                    : _buildAvatarIcon(chat['type']),
               ),
             ),
             const SizedBox(width: 12),
-
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    chat['name'],
-                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
+                  Row(
+                    children: [
+                      Expanded(child: Text(chatName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16), maxLines: 1, overflow: TextOverflow.ellipsis)),
+                      if (unreadCount > 0)
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                          decoration: const BoxDecoration(color: Color(0xFFE53935), borderRadius: BorderRadius.all(Radius.circular(12))),
+                          child: Text(unreadCount > 99 ? '99+' : unreadCount.toString(), style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
+                        ),
+                    ],
                   ),
                   const SizedBox(height: 4),
-                  Text(
-                    chat['lastMsg'],
-                    style: TextStyle(color: Colors.grey[600], fontSize: 14),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
+                  Text(chat['type'] == 'group' ? 'Групповой чат' : 'Личная переписка', style: TextStyle(color: Colors.grey[600], fontSize: 14)),
                 ],
               ),
             ),
-            // Время
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                Text(
-                  chat['time'],
-                  style: TextStyle(color: Colors.grey[400], fontSize: 12),
-                ),
-                if (unreadCount > 0)
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFE53935),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Text(
-                      unreadCount > 99 ? '99+' : unreadCount.toString(),
-                      style: const TextStyle(color: Colors.white, fontSize: 12),
-                    ),
-                  ),
-              ],
-            ),
+            const SizedBox(width: 8),
+            const Icon(Icons.chevron_right, color: Colors.grey),
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildAvatarIcon(String? type) {
+    return Container(
+      color: const Color(0xFFE0E0E0),
+      child: Icon(type == 'group' ? Icons.group : Icons.person, size: 24, color: const Color(0xFF9E9E9E)),
     );
   }
 }

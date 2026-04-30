@@ -1,108 +1,329 @@
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
+import '../../services/db_service.dart';
 
-class ChatPopup extends StatelessWidget {
-  final String chatId;
+class ChatPopup extends StatefulWidget {
+  final int chatId;
+  final String chatName;
+  final String? currentAvatar;
+  final int currentUserId;
+  final String chatType;
 
-  const ChatPopup({super.key, required this.chatId});
+  const ChatPopup({
+    super.key,
+    required this.chatId,
+    required this.chatName,
+    this.currentAvatar,
+    required this.currentUserId,
+    this.chatType = 'group',
+  });
 
   @override
-  Widget build(BuildContext context) {
-    return Dialog(
-      backgroundColor: Colors.transparent,
-      child: Container(
-        constraints: const BoxConstraints(maxWidth: 400),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(24),
+  State<ChatPopup> createState() => _ChatPopupState();
+}
+
+class _ChatPopupState extends State<ChatPopup> {
+  Map<String, dynamic>? _chatInfo;
+  List<Map<String, dynamic>> _members = [];
+  Map<String, dynamic>? _otherUser;
+  List<Map<String, dynamic>> _sharedChats = [];
+  bool _isLoading = true;
+  bool _notificationsEnabled = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadChatData();
+  }
+
+  Future<void> _loadChatData() async {
+    try {
+      final info = await DBService.getChatInfo(widget.chatId);
+      final members = await DBService.getChatMembers(widget.chatId);
+      
+      // 🔥 Если личный чат — находим собеседника и общие чаты
+      if (widget.chatType == 'private') {
+        // 🔥 ИСПРАВЛЕНО: безопасный поиск собеседника
+        final others = members.where((m) => m['id'] != widget.currentUserId).toList();
+        _otherUser = others.isNotEmpty ? others.first : null;
+        
+        if (_otherUser != null) {
+          _sharedChats = await DBService.getSharedGroupChats(
+            widget.currentUserId,
+            _otherUser!['id'] as int,
+          );
+        }
+      }
+      
+      if (mounted) {
+        setState(() {
+          _chatInfo = info;
+          _members = members;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      print('❌ Ошибка загрузки данных чата: $e');
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _changeChatAvatar() async {
+    if (widget.chatType == 'private') return; // 🔥 Нельзя менять аву в личном чате
+    
+    final picker = ImagePicker();
+    final pickedFile = await picker.pickImage(source: ImageSource.gallery);
+    
+    if (pickedFile == null || !mounted) return;
+
+    try {
+      setState(() => _isLoading = true);
+      
+      final newUrl = await DBService.updateChatAvatar(
+        widget.chatId,
+        pickedFile.path,
+      );
+      
+      if (newUrl != null && mounted) {
+        setState(() {
+          if (_chatInfo != null) _chatInfo!['image_url'] = newUrl;
+          _isLoading = false;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('✅ Аватар чата обновлён'), backgroundColor: Colors.green),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('❌ Ошибка: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+
+  Future<void> _toggleNotifications() async {
+    final success = await DBService.toggleChatNotifications(
+      widget.chatId,
+      widget.currentUserId,
+      !_notificationsEnabled,
+    );
+    
+    if (success && mounted) {
+      setState(() => _notificationsEnabled = !_notificationsEnabled);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(_notificationsEnabled 
+            ? '✅ Уведомления включены' 
+            : '🔕 Уведомления выключены'),
+          backgroundColor: Colors.green,
         ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // Заголовок чата
-            Container(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                children: [
-                  // Название чата
-                  const Text(
-                    'Студенты РПО',
-                    style: TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-                  
-                  // Кнопка "Изменить аватар"
-                  _buildOptionButton(
-                    icon: Icons.camera_alt_outlined,
-                    text: 'Изменить аватар',
-                    onTap: () {
-                      Navigator.pop(context);
-                      // TODO: Логика изменения аватара
-                    },
-                  ),
-                  const SizedBox(height: 12),
-                  
-                  // Кнопка "Выключить уведомления"
-                  _buildOptionButton(
-                    icon: Icons.notifications_off_outlined,
-                    text: 'Выключить уведомления',
-                    onTap: () {
-                      Navigator.pop(context);
-                      // TODO: Логика уведомлений
-                    },
-                  ),
-                ],
-              ),
-            ),
-            
-            // Разделитель
-            Container(
-              height: 1,
-              color: Colors.grey[200],
-            ),
-            
-            // Список участников
-            Container(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Участники:',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.black87,
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  
-                  // Участник 1
-                  _buildParticipant(
-                    name: 'Макарова Елизавета',
-                    avatarColor: Colors.pink[100]!,
-                  ),
-                  const SizedBox(height: 12),
-                  
-                  // Участник 2
-                  _buildParticipant(
-                    name: 'Кондакова Ксения',
-                    avatarColor: Colors.blue[100]!,
-                  ),
-                ],
-              ),
-            ),
-            
-            const SizedBox(height: 8),
-          ],
+      );
+    }
+  }
+
+  // 🔥 Показываем аватарку на весь экран
+  void _showFullAvatar(String imageUrl) {
+    showDialog(
+      context: context,
+      builder: (_) => Dialog(
+        backgroundColor: Colors.black87,
+        child: GestureDetector(
+          onTap: () => Navigator.pop(context),
+          child: InteractiveViewer(
+            panEnabled: true,
+            boundaryMargin: const EdgeInsets.all(20),
+            minScale: 0.5,
+            maxScale: 4,
+            child: Image.network(imageUrl),
+          ),
         ),
       ),
     );
   }
 
-  // Виджет кнопки опции
+@override
+Widget build(BuildContext context) {
+  final isPrivate = widget.chatType == 'private';
+  
+  // 🔥 Данные для отображения
+  String displayName;
+  String? displayAvatar;
+  int? displayUserId;
+  
+  if (isPrivate) {
+    displayName = '${_otherUser?['first_name'] ?? ''} ${_otherUser?['last_name'] ?? ''}'.trim();
+    displayAvatar = _otherUser?['avatar_url'] as String?;
+    displayUserId = _otherUser?['id'] as int?;
+  } else {
+    displayName = _chatInfo?['name']?.toString() ?? widget.chatName;
+    displayAvatar = _chatInfo?['image_url']?.toString() ?? widget.currentAvatar;
+    displayUserId = null;
+  }
+  
+  // 🔥 Проверка на наличие аватара
+  final hasAvatar = displayAvatar != null && displayAvatar!.isNotEmpty;
+  
+  if (displayName.isEmpty) {
+    displayName = isPrivate ? 'Пользователь' : 'Чат';
+  }
+
+  return Dialog(
+    backgroundColor: Colors.transparent,
+    child: Container(
+      constraints: const BoxConstraints(maxWidth: 400),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(24),
+      ),
+      child: _isLoading
+          ? const Padding(
+              padding: EdgeInsets.all(32),
+              child: Center(child: CircularProgressIndicator(color: Color(0xFFE53935))),
+            )
+          : SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // 🔷 Заголовок
+                  Container(
+                    padding: const EdgeInsets.all(24),
+                    child: Column(
+                      children: [
+                        // 🔥 Большая аватарка с увеличением
+                        GestureDetector(
+                          onTap: hasAvatar ? () => _showFullAvatar(displayAvatar!) : null,
+                          child: Container(
+                            width: 100,
+                            height: 100,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: const Color(0xFFE0E0E0),
+                              border: Border.all(color: Colors.grey[300]!, width: 3),
+                            ),
+                            child: ClipOval(
+                              child: hasAvatar
+                                  ? Image.network(
+                                      displayAvatar!,
+                                      fit: BoxFit.cover,
+                                      errorBuilder: (_, __, ___) => Icon(
+                                        isPrivate ? Icons.person : Icons.group,
+                                        size: 50,
+                                        color: const Color(0xFF9E9E9E),
+                                      ),
+                                    )
+                                  : Icon(
+                                      isPrivate ? Icons.person : Icons.group,
+                                      size: 50,
+                                      color: const Color(0xFF9E9E9E),
+                                    ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        
+                        // 🔥 Подсказка
+                        if (hasAvatar)
+                          const Text(
+                            'Нажмите для увеличения',
+                            style: TextStyle(fontSize: 12, color: Colors.grey),
+                          ),
+                        
+                        const SizedBox(height: 12),
+                        
+                        // 🔥 Имя/Название
+                        Text(
+                          displayName,
+                          style: const TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                        
+                        // 🔥 User ID (только для личных)
+                        if (isPrivate && displayUserId != null) ...[
+                          const SizedBox(height: 4),
+                          Text(
+                            'ID: $displayUserId',
+                            style: TextStyle(fontSize: 14, color: Colors.grey[600]),
+                          ),
+                        ],
+                        
+                        const SizedBox(height: 20),
+                        
+                        // 🔷 Опции (скрываем смену авы для личных чатов)
+                        if (!isPrivate) ...[
+                          _buildOptionButton(
+                            icon: Icons.camera_alt_outlined,
+                            text: 'Изменить аватар',
+                            onTap: _changeChatAvatar,
+                          ),
+                          const SizedBox(height: 8),
+                        ],
+                        
+                        _buildOptionButton(
+                          icon: _notificationsEnabled 
+                              ? Icons.notifications_active_outlined 
+                              : Icons.notifications_off_outlined,
+                          text: _notificationsEnabled 
+                              ? 'Выключить уведомления' 
+                              : 'Включить уведомления',
+                          onTap: _toggleNotifications,
+                        ),
+                      ],
+                    ),
+                  ),
+                  
+                  // 🔷 Разделитель
+                  Container(height: 1, color: Colors.grey[200]),
+                  
+                  // 🔷 Общие чаты (только для личных)
+                  if (isPrivate && _sharedChats.isNotEmpty) ...[
+                    Container(
+                      padding: const EdgeInsets.all(24),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Общие чаты',
+                            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                          ),
+                          const SizedBox(height: 12),
+                          ..._sharedChats.map((chat) => _buildSharedChat(chat)),
+                        ],
+                      ),
+                    ),
+                    Container(height: 1, color: Colors.grey[200]),
+                  ],
+                  
+                  // 🔷 Участники
+                  Container(
+                    padding: const EdgeInsets.all(24),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Участники',
+                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                        ),
+                        const SizedBox(height: 12),
+                        ..._members.map((member) => _buildParticipant(
+                          firstName: member['first_name'] ?? '',
+                          lastName: member['last_name'] ?? '',
+                          avatarUrl: member['avatar_url'],
+                        )).toList(),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+    ),
+  );
+}
+
   Widget _buildOptionButton({
     required IconData icon,
     required String text,
@@ -119,10 +340,7 @@ class ChatPopup extends StatelessWidget {
             const SizedBox(width: 12),
             Text(
               text,
-              style: TextStyle(
-                fontSize: 14,
-                color: Colors.grey[700],
-              ),
+              style: TextStyle(fontSize: 14, color: Colors.grey[700]),
             ),
           ],
         ),
@@ -130,42 +348,68 @@ class ChatPopup extends StatelessWidget {
     );
   }
 
-  // Виджет участника
   Widget _buildParticipant({
-    required String name,
-    required Color avatarColor,
+    required String firstName,
+    required String lastName,
+    String? avatarUrl,
   }) {
-    return Row(
-      children: [
-        // Аватарка (заглушка)
-        Container(
-          width: 36,
-          height: 36,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            color: avatarColor,
-            boxShadow: [
-              BoxShadow(
-                color: Colors.grey.withOpacity(0.2),
-                spreadRadius: 1,
-                blurRadius: 3,
-              ),
-            ],
+    final hasAvatar = avatarUrl != null && avatarUrl.isNotEmpty;
+    final fullName = '$firstName $lastName'.trim();
+    final isEmpty = fullName.isEmpty;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        children: [
+          Container(
+            width: 36,
+            height: 36,
+            decoration: const BoxDecoration(
+              shape: BoxShape.circle,
+              color: Color(0xFFE0E0E0),
+            ),
+            child: ClipOval(
+              child: hasAvatar
+                  ? Image.network(
+                      avatarUrl,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, __, ___) => const Icon(Icons.person, size: 20, color: Color(0xFF9E9E9E)),
+                    )
+                  : const Icon(Icons.person, size: 20, color: Color(0xFF9E9E9E)),
+            ),
           ),
-          // Здесь потом можно добавить фото
-          // child: Icon(Icons.person, color: Colors.white),
-        ),
-        const SizedBox(width: 12),
-        
-        // Имя
-        Text(
-          name,
-          style: const TextStyle(
-            fontSize: 14,
-            color: Colors.black87,
+          const SizedBox(width: 12),
+          Text(
+            isEmpty ? 'Пользователь' : fullName,
+            style: const TextStyle(fontSize: 14, color: Colors.black87),
           ),
-        ),
-      ],
+        ],
+      ),
+    );
+  }
+
+  // 🔷 Виджет общего чата
+  Widget _buildSharedChat(Map<String, dynamic> chat) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.grey[100],
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.forum_outlined, size: 20, color: Colors.grey),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              chat['name']?.toString() ?? 'Групповой чат',
+              style: const TextStyle(fontSize: 14),
+            ),
+          ),
+          const Icon(Icons.chevron_right, color: Colors.grey),
+        ],
+      ),
     );
   }
 }
