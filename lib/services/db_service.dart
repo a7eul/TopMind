@@ -39,21 +39,6 @@ class DBService {
     }
   }
 
-  static Future<Map<String, dynamic>?> fetchUser(int userId) async {
-    try {
-      final response = await http.get(Uri.parse('$baseUrl/users/$userId'));
-      if (response.statusCode == 200) {
-        final user = jsonDecode(response.body) as Map<String, dynamic>;
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setString('current_user', jsonEncode(user));
-        return user;
-      }
-      return null;
-    } catch (e) {
-      return null;
-    }
-  }
-
   static Future<bool> updateProfile(int userId, String firstName, String lastName) async {
     try {
       final response = await http.put(
