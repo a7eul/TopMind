@@ -1,11 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:open_file/open_file.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:http/http.dart' as http;
-import 'dart:io';
-import 'dart:async';
+import 'dart:typed_data';
 import 'package:path/path.dart' as path;
 import '../../services/db_service.dart';
 import 'chat_popup.dart';
@@ -38,8 +35,13 @@ class _ChatScreenState extends State<ChatScreen> {
   bool _isLoading = true;
   bool _isSending = false;
   bool _isUploading = false;
-  XFile? _selectedImage;
-  PlatformFile? _selectedFile;
+  
+  Uint8List? _selectedImageBytes;
+  String? _selectedImageName;
+  
+  Uint8List? _selectedFileBytes;
+  String? _selectedFileName;
+  int? _selectedFileSize;
 
   @override
   void initState() {
@@ -98,27 +100,25 @@ class _ChatScreenState extends State<ChatScreen> {
     });
   }
 
-  void _scrollToFirstUnread() {
-    if (!_scrollController.hasClients || _messages.isEmpty) return;
-    final targetIndex = _messages.length - widget.unreadCount;
-    if (targetIndex < 0) return;
-    final totalHeight = _scrollController.position.maxScrollExtent;
-    final offset = totalHeight * (targetIndex / (_messages.length - 1));
-    _scrollController.animateTo(
-      offset.clamp(0, totalHeight),
-      duration: const Duration(milliseconds: 400),
-      curve: Curves.easeOut,
-    );
-  }
-
   Future<void> _pickImage() async {
     final picker = ImagePicker();
     final pickedFile = await picker.pickImage(source: ImageSource.gallery);
     if (pickedFile != null && mounted) {
-      setState(() {
-        _selectedImage = pickedFile;
-        _selectedFile = null;
-      });
+      try {
+        final bytes = await pickedFile.readAsBytes();
+        setState(() {
+          _selectedImageBytes = bytes;
+          _selectedImageName = pickedFile.name;
+          _selectedFileBytes = null;
+          _selectedFileName = null;
+        });
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Ошибка чтения изображения: $e'), backgroundColor: Colors.red),
+          );
+        }
+      }
     }
   }
 
@@ -129,9 +129,13 @@ class _ChatScreenState extends State<ChatScreen> {
         type: FileType.any,
       );
       if (result != null && result.files.isNotEmpty && mounted) {
+        final file = result.files.first;
         setState(() {
-          _selectedFile = result.files.first;
-          _selectedImage = null;
+          _selectedFileBytes = file.bytes;
+          _selectedFileName = file.name;
+          _selectedFileSize = file.size;
+          _selectedImageBytes = null;
+          _selectedImageName = null;
         });
       }
     } catch (e) {
@@ -145,24 +149,29 @@ class _ChatScreenState extends State<ChatScreen> {
 
   void _cancelSelection() {
     setState(() {
-      _selectedImage = null;
-      _selectedFile = null;
+      _selectedImageBytes = null;
+      _selectedImageName = null;
+      _selectedFileBytes = null;
+      _selectedFileName = null;
+      _selectedFileSize = null;
     });
   }
 
   Future<void> _sendFileMessage() async {
-    if (_selectedFile == null) return;
+    if (_selectedFileBytes == null || _selectedFileName == null) return;
     setState(() => _isUploading = true);
     try {
       final success = await DBService.sendFileMessage(
         widget.chatId,
         widget.userId,
-        _selectedFile!.path!,
-        _selectedFile!.name,
+        _selectedFileBytes!,
+        _selectedFileName!,
       );
       if (success && mounted) {
         setState(() {
-          _selectedFile = null;
+          _selectedFileBytes = null;
+          _selectedFileName = null;
+          _selectedFileSize = null;
           _isUploading = false;
         });
         await _loadMessages();
@@ -258,12 +267,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Future<void> _openFile(String fileUrl, String fileName) async {
     try {
-      final directory = await getApplicationDocumentsDirectory();
-      final filePath = '${directory.path}/$fileName';
-      final response = await http.get(Uri.parse(fileUrl));
-      final file = File(filePath);
-      await file.writeAsBytes(response.bodyBytes);
-      await OpenFile.open(filePath);
+      await Future.delayed(const Duration(milliseconds: 100));
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -301,10 +305,45 @@ class _ChatScreenState extends State<ChatScreen> {
   String _formatTime(String? isoString) {
     if (isoString == null) return '';
     try {
-      final date = DateTime.parse(isoString);
-      return '${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')}';
+      final utcDate = DateTime.parse(isoString);
+      final localDate = utcDate.toLocal();
+      return '${localDate.hour.toString().padLeft(2, '0')}:${localDate.minute.toString().padLeft(2, '0')}';
     } catch (_) {
       return '';
+    }
+  }
+
+  Future<void> _sendImageMessage() async {
+    if (_selectedImageBytes == null || _selectedImageName == null) return;
+    setState(() => _isUploading = true);
+    try {
+      final success = await DBService.sendImageMessage(
+        widget.chatId,
+        widget.userId,
+        _selectedImageBytes!,
+        _selectedImageName!,
+      );
+      if (success && mounted) {
+        setState(() {
+          _selectedImageBytes = null;
+          _selectedImageName = null;
+          _isUploading = false;
+        });
+        await _loadMessages();
+        _scrollToBottom();
+      } else if (mounted) {
+        setState(() => _isUploading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Не удалось отправить фото'), backgroundColor: Colors.red),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isUploading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Ошибка: $e'), backgroundColor: Colors.red),
+        );
+      }
     }
   }
 
@@ -506,22 +545,28 @@ class _ChatScreenState extends State<ChatScreen> {
                   ),
           ),
 
-          if (_selectedImage != null || _selectedFile != null)
+          if (_selectedImageBytes != null || _selectedFileBytes != null)
             Container(
               padding: const EdgeInsets.all(8),
               color: Colors.grey[100],
               child: Stack(
                 children: [
-                  if (_selectedImage != null)
+                  if (_selectedImageBytes != null)
                     ClipRRect(
                       borderRadius: BorderRadius.circular(12),
-                      child: Image.file(
-                        File(_selectedImage!.path),
+                      child: SizedBox(
                         height: 150,
-                        fit: BoxFit.cover,
+                        child: Image.memory(
+                          _selectedImageBytes!,
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, __, ___) => Container(
+                            color: Colors.grey[300],
+                            child: const Icon(Icons.broken_image, color: Colors.grey),
+                          ),
+                        ),
                       ),
                     )
-                  else if (_selectedFile != null)
+                  else if (_selectedFileBytes != null && _selectedFileName != null)
                     Container(
                       padding: const EdgeInsets.all(16),
                       height: 100,
@@ -531,7 +576,7 @@ class _ChatScreenState extends State<ChatScreen> {
                       ),
                       child: Row(
                         children: [
-                          _getFileIcon(_selectedFile!.name),
+                          _getFileIcon(_selectedFileName),
                           const SizedBox(width: 12),
                           Expanded(
                             child: Column(
@@ -539,7 +584,7 @@ class _ChatScreenState extends State<ChatScreen> {
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: [
                                 Text(
-                                  _selectedFile!.name,
+                                  _selectedFileName!,
                                   style: const TextStyle(
                                     fontWeight: FontWeight.w500,
                                     fontSize: 14,
@@ -547,13 +592,14 @@ class _ChatScreenState extends State<ChatScreen> {
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                 ),
-                                Text(
-                                  _formatFileSize(_selectedFile!.size),
-                                  style: TextStyle(
-                                    color: Colors.grey[600],
-                                    fontSize: 12,
+                                if (_selectedFileSize != null)
+                                  Text(
+                                    _formatFileSize(_selectedFileSize!),
+                                    style: TextStyle(
+                                      color: Colors.grey[600],
+                                      fontSize: 12,
+                                    ),
                                   ),
-                                ),
                               ],
                             ),
                           ),
@@ -621,7 +667,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 Expanded(
                   child: TextField(
                     controller: _controller,
-                    enabled: !_isSending && _selectedImage == null && _selectedFile == null && !_isUploading,
+                    enabled: !_isSending && _selectedImageBytes == null && _selectedFileBytes == null && !_isUploading,
                     decoration: InputDecoration(
                       hintText: 'Сообщение...',
                       border: OutlineInputBorder(
@@ -633,8 +679,8 @@ class _ChatScreenState extends State<ChatScreen> {
                       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                     ),
                     onSubmitted: (_) {
-                      if (_selectedImage != null) _sendImageMessage();
-                      else if (_selectedFile != null) _sendFileMessage();
+                      if (_selectedImageBytes != null) _sendImageMessage();
+                      else if (_selectedFileBytes != null) _sendFileMessage();
                       else if (_controller.text.trim().isNotEmpty) _sendMessage();
                     },
                   ),
@@ -652,8 +698,8 @@ class _ChatScreenState extends State<ChatScreen> {
                     : IconButton(
                         icon: const Icon(Icons.send, color: Color(0xFFE53935)),
                         onPressed: () {
-                          if (_selectedImage != null) _sendImageMessage();
-                          else if (_selectedFile != null) _sendFileMessage();
+                          if (_selectedImageBytes != null) _sendImageMessage();
+                          else if (_selectedFileBytes != null) _sendFileMessage();
                           else if (_controller.text.trim().isNotEmpty) _sendMessage();
                         },
                       ),
@@ -663,37 +709,5 @@ class _ChatScreenState extends State<ChatScreen> {
         ],
       ),
     );
-  }
-
-  Future<void> _sendImageMessage() async {
-    if (_selectedImage == null) return;
-    setState(() => _isUploading = true);
-    try {
-      final success = await DBService.sendImageMessage(
-        widget.chatId,
-        widget.userId,
-        _selectedImage!.path,
-      );
-      if (success && mounted) {
-        setState(() {
-          _selectedImage = null;
-          _isUploading = false;
-        });
-        await _loadMessages();
-        _scrollToBottom();
-      } else if (mounted) {
-        setState(() => _isUploading = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Не удалось отправить фото'), backgroundColor: Colors.red),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() => _isUploading = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Ошибка: $e'), backgroundColor: Colors.red),
-        );
-      }
-    }
   }
 }

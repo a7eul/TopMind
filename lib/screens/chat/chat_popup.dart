@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import 'dart:typed_data'; 
 import '../../services/db_service.dart';
 
 class ChatPopup extends StatefulWidget {
@@ -76,9 +77,12 @@ class _ChatPopupState extends State<ChatPopup> {
     try {
       setState(() => _isLoading = true);
 
+      final bytes = await pickedFile.readAsBytes();
+
       final newUrl = await DBService.updateChatAvatar(
         widget.chatId,
-        pickedFile.path,
+        bytes,
+        pickedFile.name,
       );
 
       if (newUrl != null && mounted) {

@@ -1,10 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
-import 'dart:io';
-import 'package:http/http.dart' as http;
+import 'dart:typed_data'; 
 import 'package:image_picker/image_picker.dart';
-import 'package:path/path.dart' as path;
 import '../../services/db_service.dart';
 import '../widgets/side_menu.dart';
 
@@ -128,7 +126,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
       ),
     );
   }
-
   Future<void> _changeAvatar() async {
     final ImagePicker picker = ImagePicker();
     final XFile? pickedFile = await picker.pickImage(
@@ -141,36 +138,26 @@ class _ProfileScreenState extends State<ProfileScreen> {
     try {
       setState(() => _isLoading = true);
 
-      final uri = Uri.parse('${DBService.baseUrl}/users/${_user!['id']}/avatar');
-      final request = http.MultipartRequest('POST', uri);
-      request.files.add(await http.MultipartFile.fromPath(
-        'file',
-        pickedFile.path,
-        filename: path.basename(pickedFile.path),
-      ));
+      final Uint8List bytes = await pickedFile.readAsBytes();
 
-      final streamedResponse = await request.send();
-      final response = await http.Response.fromStream(streamedResponse);
+      final newAvatarUrl = await DBService.uploadAvatar(
+        _user!['id'],
+        bytes,
+        pickedFile.name,
+      );
 
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        final newAvatarUrl = data['avatar_url'] as String?;
+      if (mounted && newAvatarUrl != null) {
+        setState(() {
+          _user!['avatar_url'] = newAvatarUrl;
+          _isLoading = false;
+        });
 
-        if (mounted && newAvatarUrl != null) {
-          setState(() {
-            _user!['avatar_url'] = newAvatarUrl;
-            _isLoading = false;
-          });
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('current_user', jsonEncode(_user));
 
-          final prefs = await SharedPreferences.getInstance();
-          await prefs.setString('current_user', jsonEncode(_user));
-
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Аватар обновлен'), backgroundColor: Colors.green),
-          );
-        }
-      } else {
-        throw Exception('Ошибка: ${response.body}');
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Аватар обновлен'), backgroundColor: Colors.green),
+        );
       }
     } catch (e) {
       if (mounted) {

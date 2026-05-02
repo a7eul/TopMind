@@ -1,12 +1,11 @@
 import 'dart:convert';
-import 'dart:io';
+import 'dart:typed_data';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:path/path.dart' as path;
 import 'package:http_parser/http_parser.dart';
 
 class DBService {
-  static const baseUrl = 'http://127.0.0.1:8000';
+  static const baseUrl = 'https://college-api-5wro.onrender.com';
 
   static Future<Map<String, dynamic>?> login(String login, String password) async {
     try {
@@ -52,15 +51,18 @@ class DBService {
     }
   }
 
-  static Future<String?> uploadAvatar(int userId, String filePath) async {
+  static Future<String?> uploadAvatar(int userId, Uint8List fileBytes, String filename) async {
     try {
       final uri = Uri.parse('$baseUrl/users/$userId/avatar');
       final request = http.MultipartRequest('POST', uri);
-      request.files.add(await http.MultipartFile.fromPath(
-        'file',
-        filePath,
-        filename: path.basename(filePath),
-      ));
+      
+      request.files.add(
+        http.MultipartFile.fromBytes(
+          'file',
+          fileBytes,
+          filename: filename,
+        ),
+      );
 
       final streamedResponse = await request.send();
       final response = await http.Response.fromStream(streamedResponse);
@@ -150,7 +152,6 @@ class DBService {
     }
   }
 
-
   static Future<Map<String, dynamic>?> getChatInfo(int chatId) async {
     try {
       final response = await http.get(Uri.parse('$baseUrl/chats/$chatId/info'));
@@ -178,15 +179,18 @@ class DBService {
     }
   }
 
-  static Future<String?> updateChatAvatar(int chatId, String filePath) async {
+  static Future<String?> updateChatAvatar(int chatId, Uint8List fileBytes, String filename) async {
     try {
       final uri = Uri.parse('$baseUrl/chats/$chatId/avatar');
       final request = http.MultipartRequest('PUT', uri);
-      request.files.add(await http.MultipartFile.fromPath(
-        'file',
-        filePath,
-        filename: path.basename(filePath),
-      ));
+      
+      request.files.add(
+        http.MultipartFile.fromBytes(
+          'file',
+          fileBytes,
+          filename: filename,
+        ),
+      );
 
       final streamedResponse = await request.send();
       final response = await http.Response.fromStream(streamedResponse);
@@ -301,16 +305,21 @@ class DBService {
     }
   }
 
-  static Future<bool> sendImageMessage(int chatId, int senderId, String imagePath) async {
+  static Future<bool> sendImageMessage(int chatId, int senderId, Uint8List imageBytes, String filename) async {
     try {
       final uri = Uri.parse('$baseUrl/chats/$chatId/messages/image');
+      
       final request = http.MultipartRequest('POST', uri)
         ..fields['sender_id'] = senderId.toString()
-        ..files.add(await http.MultipartFile.fromPath(
-          'image',
-          imagePath,
-          contentType: MediaType('image', 'jpeg'),
-        ));
+        ..files.add(
+          http.MultipartFile.fromBytes(
+            'image',
+            imageBytes,
+            filename: filename,
+            contentType: MediaType('image', 'jpeg'),
+          ),
+        );
+        
       final response = await request.send();
       return response.statusCode == 200 || response.statusCode == 201;
     } catch (e) {
@@ -321,18 +330,33 @@ class DBService {
   static Future<bool> sendFileMessage(
     int chatId,
     int senderId,
-    String filePath,
+    Uint8List fileBytes,
     String fileName,
   ) async {
     try {
+      if (fileBytes.isEmpty || fileName.isEmpty) {
+        return false;
+      }
+
       final uri = Uri.parse('$baseUrl/chats/$chatId/messages/file');
+      
+      final safeFileName = fileName
+          .replaceAll(RegExp(r'[^\x20-\x7E]'), '_')
+          .replaceAll(RegExp(r'\s+'), '_')
+          .trim();
+      
       final request = http.MultipartRequest('POST', uri)
         ..fields['sender_id'] = senderId.toString()
         ..fields['file_name'] = fileName
-        ..files.add(await http.MultipartFile.fromPath(
-          'file',
-          filePath,
-        ));
+        ..files.add(
+          http.MultipartFile.fromBytes(
+            'file',
+            fileBytes,
+            filename: safeFileName.isEmpty ? 'uploaded_file' : safeFileName,
+            contentType: MediaType('application', 'octet-stream'),
+          ),
+        );
+      
       final response = await request.send();
       return response.statusCode == 200 || response.statusCode == 201;
     } catch (e) {
